@@ -69,57 +69,15 @@ class baseModel(nn.Module):
 
 class naiveBayesModel(nn.Module):
 	#uses binarized version
-	def __init__(self, dataset, alpha=1, featSize):
+	def __init__(self, dataset, alpha=1, vocabSize, batchSize):
 		super(baseModel, self).__init__()
 
-		self.featSize = featSize
+		self.vocabSize = vocabSize
 		#schematically:
 		N_p = 0
 		N_m = 0
-		p = torch.ones(featSize, 1) * alpha #batchsize?
-		q = torch.ones(featSize, 1) * alpha #batchsize?
-
-		for i, batch in enumerate(dataset):
-			if i%50==0: print(f"iteration {i}")
-			f = self.convertToX(batch)
-			#binarize f
-			f = torch.where(x > 0, torch.ones(f.size()), torch.zeros(f.size()))  # TODO
-			if batch.label == 'positive'  # TODO
-				N_p += 1
-				p += f
-			else:
-				N_m += 1
-				q += f
-
-		r = torch.log( (p/torch.sum(p, 0)) / (q/torch.sum(q, 0)) )
-		self.W = r
-		self.b = torch.log(N_p/N_m)
-
-	def predict(self, x):
-		y = torch.sign(ntorch.mm(torch.t(self.W), x) + self.b) #TODO: sign function, mm
-		return y
-
-	def forward(self, text):
-		x = self.convertToX(batch)
-		return self.predict(x)
-
-	def convertToX(self, batch):
-		#this function makes the feature vectors
-		x = torch.zeros(batch.size()) #needs to be updated for ntorch
-		x.scatter_add_(0, batch, torch.ones(batch.size()))  # oh god
-		return x
-
-class naiveBayesModel(nn.Module):
-	#uses binarized version
-	def __init__(self, dataset, alpha=1, featSize, batchSize):
-		super(baseModel, self).__init__()
-
-		self.featSize = featSize
-		#schematically:
-		N_p = 0
-		N_m = 0
-		p = ntorch.tensor(torch.ones(featSize, batchSize) * alpha, ['vocab', 'batch']) #batchsize?
-		q = ntorch.tensor(torch.ones(featSize, batchSize) * alpha, ['vocab', 'batch']) #batchsize?
+		p = ntorch.tensor(torch.ones(vocabSize, batchSize) * alpha, ['vocab', 'batch']) #batchsize?
+		q = ntorch.tensor(torch.ones(vocabSize, batchSize) * alpha, ['vocab', 'batch']) #batchsize?
 
 		for i, batch in enumerate(dataset):
 			if i%50==0: print(f"iteration {i}")
@@ -154,19 +112,23 @@ class naiveBayesModel(nn.Module):
 		return self.predict(x)
 
 	def convertToX(self, batch):
-		#this function makes the feature vectors
-		x = torch.zeros(batch.size()) #needs to be updated for ntorch
-		x.scatter_add_(0, batch, torch.ones(batch.size()))  # oh god
+		#this function makes the feature vectors wth scatter
+		x = ntorch.tensor( torch.zeros(vocabSize, batch.text.shape['batch']).cuda(), ('vocab', 'batch'))
+		y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'], batch.text.shape['batch']).cuda(), ('seqlen', 'batch'))
+
+		x.scatter_('vocab', batch.text, y, 'seqlen')
+
+		print("len x:", len(x))
 		return x
 
 
-#x = ntorch.tensor( torch.zeros(batch.text.shape['seqlen'],batch.text.shape['batch']), ('seqlen', 'batch'))
-x = ntorch.tensor( torch.zeros(16284 ,batch.text.shape['batch']).cuda(), ('vocab', 'batch'))
-#y = torch.ones(batch.text.shape['seqlen'],batch.text.shape['batch'])
-y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'],batch.text.shape['batch']).cuda(), ('seqlen', 'batch'))
+# #x = ntorch.tensor( torch.zeros(batch.text.shape['seqlen'],batch.text.shape['batch']), ('seqlen', 'batch'))
+# x = ntorch.tensor( torch.zeros(vocabSize, batch.text.shape['batch']).cuda(), ('vocab', 'batch'))
+# #y = torch.ones(batch.text.shape['seqlen'],batch.text.shape['batch'])
+# y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'],batch.text.shape['batch']).cuda(), ('seqlen', 'batch'))
 
-x.scatter_('vocab', batch.text, y, 'seqlen')
+# x.scatter_('vocab', batch.text, y, 'seqlen')
 
-print("batch.text MAX", len(x))
+
 
 
