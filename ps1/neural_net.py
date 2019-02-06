@@ -8,6 +8,8 @@ from torchtext.vocab import Vectors, GloVe
 from namedtensor import ntorch, NamedTensor
 from namedtensor.text import NamedField
 
+device=torch.device("cpu")
+
 # Our input $x$
 TEXT = NamedField(names=('seqlen',))
 
@@ -18,19 +20,19 @@ train, val, test = torchtext.datasets.SST.splits(
     TEXT, LABEL,
     filter_pred=lambda ex: ex.label != 'neutral')
 
-TEXT.build_vocab(train)
-LABEL.build_vocab(train)
-
-device=torch.device("cpu")
-
 train_iter, val_iter, test_iter = torchtext.data.BucketIterator.splits(
-    (train, val, test), batch_size=100, device=device)
+    (train, val, test), batch_size=10, device=device)
+
+# TEXT.vocab.load_vectors()
+TEXT.build_vocab(train, max_size=25000, vectors="glove.6B.100d")
+LABEL.build_vocab(train)
 
 
 
 # Build the vocabulary with word embeddings
 url = 'https://s3-us-west-1.amazonaws.com/fasttext-vectors/wiki.simple.vec'
-TEXT.vocab.load_vectors(vectors=Vectors('wiki.simple.vec', url=url))
+
+# TEXT.vocab.load_vectors(vectors=Vectors('wiki.simple.vec', url=url))
 
 def test_code(model):
     "All models should be able to be run with following command."
@@ -56,27 +58,28 @@ class CBOW(ntorch.nn.Module):
         super(CBOW, self).__init__()
         self.vocabSize = vocabSize
         self.embedSize = embedSize
-        self.Vsize = 20
+        self.Vsize = 100
 
         # self.Wb = ntorch.nn.Linear(self.embedSize, 1)
         #self.W = Variable ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",)))
-        self.V = ntorch.nn.Linear(self.embedSize, self.Vsize).spec("vocab", "embedding")
-        self.U = ntorch.nn.Linear(self.Vsize, 1).spec("embedding", "score")
+        self.V = ntorch.nn.Embedding(self.vocabSize, self.embedSize).spec("seqlen", "embedding")
+        # self.V = ntorch.nn.Linear(self.embedSize, self.Vsize).spec("vocab", "embedding")
+        self.U = ntorch.nn.Linear(self.Vsize, 2).spec("embedding", "classes")
         self.dropout = ntorch.nn.Dropout(0.9)
         # self.relu = ntorch.nn.ReLU().spec("singular", "singular")
         #self.b = ntorch.tensor(0., names=())
-        self.lossfn = ntorch.nn.NLLLoss().spec("classes")
+        self.lossfn = ntorch.nn.CrossEntropyLoss().spec("classes")
 
     def predict(self, x):
         # import ipdb; ipdb.set_trace()
         # y = self.Wb
         #y = (self.W.index_select('vocab', x.long()).sum('vocab') + self.b).sigmoid()
-        y_ = self.U(self.dropout(self.V(x)).relu().sum("seqlen")).sum('score').sigmoid()
-        # y_ = self.U(self.V(x).relu().sum("seqlen")).sum('score')
+        # y_ = self.U(self.dropout(self.V(x)).relu().sum("seqlen")).sum('score').sigmoid()
+        y_ = self.U(self.V(x).sum("seqlen"))
         # y_ = self.relu(self.W(x)).sigmoid().sum('singular') # this is a huge hack
 
-        y = ntorch.stack([y_, 1.-y_], 'classes') #.log_softmax('classes')
-        return y
+        # y = ntorch.stack([y_, 1.-y_], 'classes') #.log_softmax('classes')
+        return y_
 
     def forward(self, batchText):
         x = self.convertToX(batchText)
@@ -88,18 +91,19 @@ class CBOW(ntorch.nn.Module):
         # x = ntorch.tensor( torch.zeros(self.vocabSize, batchText.shape['batch'], device=device), ('vocab', 'batch'))
         # y = ntorch.tensor( torch.ones(batchText.shape['seqlen'], batchText.shape['batch'], device=device), ('seqlen', 'batch'))
         # one_hot_vectors = ntorch.tensor(torch.diag(torch.ones(self.vocabSize)), ('vocab', 'lookup'))
-        pretrained_embeddings = ntorch.tensor(TEXT.vocab.vectors, ('lookup', 'vocab'))
-        x = pretrained_embeddings.index_select('lookup', batchText)
+        # pretrained_embeddings = ntorch.tensor(TEXT.vocab.vectors, ('lookup', 'vocab'))
+        # x = pretrained_embeddings.index_select('lookup', batchText)
         # x.scatter_('vocab', batchText, y, 'seqlen')
+        # x = one_hot_vectors.index_select('lookup', batchText)
         #print("len x:", len(x))
-        return x
+        return batchText
 
     def loss(self, batch):
         prediction = self(batch.text)  # probabilities
         #print("predict", prediction)
         #print('predict size', prediction.shape)
         #print("label", batch.label)
-        return self.lossfn(prediction.log(), batch.label)
+        return self.lossfn(prediction, batch.label)
 
     def acc(self, batch):
         prediction = self(batch.text)  # probabilities
@@ -111,10 +115,9 @@ class CBOW(ntorch.nn.Module):
         return acc
 
 def train(cbow, dataset):
-    optimizer = optim.Adam(cbow.parameters(), lr=0.001)
+    optimizer = optim.Adam(cbow.parameters(), lr=0.0005)
 
     # in your training loop:
-    optimizer.zero_grad()   # zero the gradient buffers
     for i, batch in enumerate(dataset):
         cbow.train()
         optimizer.zero_grad()   # zero the gradient buffers
@@ -122,7 +125,8 @@ def train(cbow, dataset):
         loss = cbow.loss(batch) #loss = (batch.label.float() - prediction).abs().sum('batch')
         loss.backward()
         optimizer.step()
-        if i%60==0 and not i==0:
+        if i%600==0 and not i==0:
+        # if True:
             cbow.eval()
             train_losses = []
             train_accs = []
@@ -149,8 +153,10 @@ def train(cbow, dataset):
 if __name__=='__main__':
 #print("params", lr.parameters())
     cbow = CBOW(TEXT.vocab.vectors.size()[0], TEXT.vocab.vectors.size()[1])
+    pretrained_embeddings = TEXT.vocab.vectors
+    cbow.V.weight.data.copy_(pretrained_embeddings)
 
-    for i in range(50):
+    for i in range(1000):
         print(f"epoch {i}")
         train(cbow, train_iter)
 
