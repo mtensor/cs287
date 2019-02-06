@@ -50,25 +50,27 @@ def test_code(model):
             f.write(str(i) + "," + str(u) + "\n")
 
 
-class logisticRegression(ntorch.nn.Module):
+class CNN(ntorch.nn.Module):
     #uses binarized version
     def __init__(self, vocabSize, embedSize):
-        super(logisticRegression, self).__init__()
+        super(CNN, self).__init__()
         self.vocabSize = vocabSize
         self.embedSize = embedSize
+        self.Vsize = 1000
 
         # self.Wb = ntorch.nn.Linear(self.embedSize, 1)
         #self.W = Variable ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",)))
-        self.W = ntorch.nn.Linear(self.vocabSize, 1).spec("vocab", "singular")
+        self.V = ntorch.nn.Linear(self.embedSize, self.Vsize).spec("vocab", "embedding")
+        self.U = ntorch.nn.Linear(self.Vsize, 1).spec("embedding", "score")
+        # self.relu = ntorch.nn.ReLU().spec("singular", "singular")
         #self.b = ntorch.tensor(0., names=())
         self.lossfn = ntorch.nn.CrossEntropyLoss().spec("classes")
 
     def predict(self, x):
-        # y = self.Wb
-        #y = (self.W.index_select('vocab', x.long()).sum('vocab') + self.b).sigmoid()
-        y_ = self.W(x).sigmoid().sum('singular').sigmoid() # this is a huge hack
 
-        y = ntorch.stack([y_, 1-y_], 'classes') #.log_softmax('classes')
+        y_ = self.U(self.V(x).relu().sum("seqlen")).sigmoid().sum('score')
+
+        y = ntorch.stack([y_, 1-y_], 'classes')
         return y
 
     def forward(self, batchText):
@@ -76,11 +78,14 @@ class logisticRegression(ntorch.nn.Module):
         return self.predict(x)
 
     def convertToX(self, batchText):
+        # import ipdb; ipdb.set_trace()
         #this function makes the feature vectors wth scatter
-        x = ntorch.tensor( torch.zeros(self.vocabSize, batchText.shape['batch'], device=device), ('vocab', 'batch'))
-        y = ntorch.tensor( torch.ones(batchText.shape['seqlen'], batchText.shape['batch'], device=device), ('seqlen', 'batch'))
-
-        x.scatter_('vocab', batchText, y, 'seqlen')
+        # x = ntorch.tensor( torch.zeros(self.vocabSize, batchText.shape['batch'], device=device), ('vocab', 'batch'))
+        # y = ntorch.tensor( torch.ones(batchText.shape['seqlen'], batchText.shape['batch'], device=device), ('seqlen', 'batch'))
+        # one_hot_vectors = ntorch.tensor(torch.diag(torch.ones(self.vocabSize)), ('vocab', 'lookup'))
+        pretrained_embeddings = ntorch.tensor(TEXT.vocab.vectors, ('lookup', 'vocab'))
+        x = pretrained_embeddings.index_select('lookup', batchText)
+        # x.scatter_('vocab', batchText, y, 'seqlen')
         #print("len x:", len(x))
         return x
 
@@ -91,16 +96,16 @@ class logisticRegression(ntorch.nn.Module):
         #print("label", batch.label)
         return self.lossfn(prediction, batch.label)
 
-def train(lrModel, dataset):
-    optimizer = optim.Adam(lrModel.parameters(), lr=0.01)
+def train(model, dataset):
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
     # in your training loop:
     optimizer.zero_grad()   # zero the gradient buffers
     losses = []
     for i, batch in enumerate(dataset):
         optimizer.zero_grad()   # zero the gradient buffers
-        
-        loss = lrModel.loss(batch) #loss = (batch.label.float() - prediction).abs().sum('batch')
+
+        loss = model.loss(batch) #loss = (batch.label.float() - prediction).abs().sum('batch')
         loss.backward()
         optimizer.step()
         losses.append(loss.item())
@@ -109,20 +114,18 @@ def train(lrModel, dataset):
             print(f"moving average loss={sum(losses[-1-100:-1])/100.}")
             val_losses = []
             for vbatch in val_iter:
-                val_losses.append( lrModel.loss(vbatch).item())
+                val_losses.append( model.loss(vbatch).item())
             val_loss = sum(val_losses)/len(val_losses)
             print(f"val loss: {val_loss}")
 #import ipdb; ipdb.set_trace()
 
 if __name__=='__main__':
 #print("params", lr.parameters())
-    lrModel = logisticRegression(TEXT.vocab.vectors.size()[0], None)
+    cbow = CBOW(TEXT.vocab.vectors.size()[0], TEXT.vocab.vectors.size()[1])
 
     for i in range(10):
         print(f"epoch {i}")
-        train(lrModel, train_iter)
+        train(cbow, train_iter)
 
 
-    test_code(lrModel)
-
-
+    test_code(cbow)
