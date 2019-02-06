@@ -26,103 +26,31 @@ device=torch.device("cpu")
 train_iter, val_iter, test_iter = torchtext.data.BucketIterator.splits(
     (train, val, test), batch_size=10, device=device)
 
-batch = next(iter(train_iter))
-print("Size of text batch:", batch.text.shape)
-example = batch.text.get("batch", 1)
-print("Second in batch", example)
-print("Converted back to string:", " ".join([TEXT.vocab.itos[i] for i in example.tolist()]))
 
-print("Size of label batch:", batch.label.shape)
-example = batch.label.get("batch", 1)
-print("Second in batch", example.item())
-print("Converted back to string:", LABEL.vocab.itos[example.item()])
 
 # Build the vocabulary with word embeddings
 url = 'https://s3-us-west-1.amazonaws.com/fasttext-vectors/wiki.simple.vec'
 TEXT.vocab.load_vectors(vectors=Vectors('wiki.simple.vec', url=url))
 
-print("Word embeddings size ", TEXT.vocab.vectors.size())
-print("Word embedding of 'follows', first 10 dim ", TEXT.vocab.vectors[TEXT.vocab.stoi['follows']][:10])
+def test_code(model):
+    "All models should be able to be run with following command."
+    upload = []
+    # Update: for kaggle the bucket iterator needs to have batch_size 10
+    test_iter = torchtext.data.BucketIterator(test, train=False, batch_size=10)
+    for batch in test_iter:
+        # Your prediction data here (don't cheat!)
+        probs = model(batch.text)
+        # here we assume that the name for dimension classes is `classes`
+        _, argmax = probs.max('classes')
+        upload += argmax.tolist()
 
-# def test_code(model):
-#     "All models should be able to be run with following command."
-#     upload = []
-#     # Update: for kaggle the bucket iterator needs to have batch_size 10
-#     test_iter = torchtext.data.BucketIterator(test, train=False, batch_size=10)
-#     for batch in test_iter:
-#         # Your prediction data here (don't cheat!)
-#         probs = model(batch.text)
-#         # here we assume that the name for dimension classes is `classes`
-#         _, argmax = probs.max('classes')
-#         upload += argmax.tolist()
-#
-#     with open("predictions.txt", "w") as f:
-#         f.write("Id,Category\n")
-#         for i, u in enumerate(upload):
-#             f.write(str(i) + "," + str(u) + "\n")
+    with open("predictions.txt", "w") as f:
+        f.write("Id,Category\n")
+        for i, u in enumerate(upload):
+            f.write(str(i) + "," + str(u) + "\n")
 
 
-# class baseModel(torch.nn.Module):
-#     def __init__(self):
-#         super(baseModel, self).__init__()
-
-#
-# class naiveBayesModel(nn.Module):
-#     #uses binarized version
-#     def __init__(self, dataset, alpha=1, vocabSize, batchSize):
-#         super(baseModel, self).__init__()
-#
-#         self.vocabSize = vocabSize
-#         #schematically:
-#         N_p = 0
-#         N_m = 0
-#         p = ntorch.tensor(torch.ones(vocabSize, batchSize) * alpha, ['vocab', 'batch']) #batchsize?
-#         q = ntorch.tensor(torch.ones(vocabSize, batchSize) * alpha, ['vocab', 'batch']) #batchsize?
-#
-#         for i, batch in enumerate(dataset):
-#             if i%50==0: print(f"iteration {i}")
-#             f = self.convertToX(batch)
-#             #binarize f
-#             f = torch.where(x > 0, torch.ones(f.size()), torch.zeros(f.size()))  # TODO
-#
-#
-#             p += ntorch.where(batch.label==1., ones, zeros)
-#             q += ntorch.where(batch.label==0., ones, zeros)
-#
-#
-#             N_p = batch.label.sum("batch")
-#
-#             if batch.label == 'positive'  # TODO not correct
-#                 N_p += 1
-#                 p += batch.convert
-#             else:
-#                 N_m += 1
-#                 q += f
-#         r = torch.log( (p/torch.sum(p, 0)) / (q/torch.sum(q, 0)) )
-#
-#         self.W = r
-#         self.b = ntorch.tensor(torch.log(N_p/N_m))  # TODO
-#
-#     def predict(self, x):
-#         y = ntorch.tensor(torch.sign(self.W.index_select(x, 'vocab').sum('vocab') + self.b), ['classes', 'batch']) #TODO: sign function, mm
-#         return y
-#
-#     def forward(self, text):
-#         x = self.convertToX(batch)
-#         return self.predict(x)
-#
-#     def convertToX(self, batch):
-#         #this function makes the feature vectors wth scatter
-#         x = ntorch.tensor( torch.zeros(vocabSize, batch.text.shape['batch']).cuda(), ('vocab', 'batch'))
-#         y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'], batch.text.shape['batch']).cuda(), ('seqlen', 'batch'))
-#
-#         x.scatter_('vocab', batch.text, y, 'seqlen')
-#
-#         print("len x:", len(x))
-#         return x
-
-
-class logisticRegression(torch.nn.Module):
+class logisticRegression(ntorch.nn.Module):
     #uses binarized version
     def __init__(self, vocabSize, embedSize):
         super(logisticRegression, self).__init__()
@@ -130,48 +58,71 @@ class logisticRegression(torch.nn.Module):
         self.embedSize = embedSize
 
         # self.Wb = ntorch.nn.Linear(self.embedSize, 1)
-        self.W = ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",))
-        self.b = ntorch.tensor(0., names=())
-
-
-    def batchTrain(self, batch):
-        prediction = self.forward(batch)  # probabilities
-        loss = (batch.label.float() - prediction).abs().sum('batch')
-
-        loss.backward()
+        #self.W = Variable ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",)))
+        self.W = ntorch.nn.Linear(self.vocabSize, 1).spec("vocab", "singular")
+        #self.b = ntorch.tensor(0., names=())
+        self.lossfn = ntorch.nn.CrossEntropyLoss().spec("classes")
 
     def predict(self, x):
         # y = self.Wb
-        y = (self.W.index_select('vocab', x.long()).sum('vocab') + self.b).sigmoid()
+        #y = (self.W.index_select('vocab', x.long()).sum('vocab') + self.b).sigmoid()
+        y_ = self.W(x).sigmoid().sum('singular') # this is a huge hack
+
+        y = ntorch.stack([y_, 1-y_], 'classes') #.log_softmax('classes')
         return y
 
-    def forward(self, batch):
-        x = self.convertToX(batch)
+    def forward(self, batchText):
+        x = self.convertToX(batchText)
         return self.predict(x)
 
-    def convertToX(self, batch):
+    def convertToX(self, batchText):
         #this function makes the feature vectors wth scatter
-        x = ntorch.tensor( torch.zeros(self.vocabSize, batch.text.shape['batch'], device=device), ('vocab', 'batch'))
-        y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'], batch.text.shape['batch'], device=device), ('seqlen', 'batch'))
+        x = ntorch.tensor( torch.zeros(self.vocabSize, batchText.shape['batch'], device=device), ('vocab', 'batch'))
+        y = ntorch.tensor( torch.ones(batchText.shape['seqlen'], batchText.shape['batch'], device=device), ('seqlen', 'batch'))
 
-        x.scatter_('vocab', batch.text, y, 'seqlen')
-
-        print("len x:", len(x))
+        x.scatter_('vocab', batchText, y, 'seqlen')
+        #print("len x:", len(x))
         return x
 
+    def loss(self, batch):
+        prediction = self(batch.text)  # probabilities
+        #print("predict", prediction)
+        #print('predict size', prediction.shape)
+        #print("label", batch.label)
+        return self.lossfn(prediction, batch.label)
 
-lr = logisticRegression(TEXT.vocab.vectors.size()[0], TEXT.vocab.vectors.size()[1])
-import ipdb; ipdb.set_trace()
-
-def train(self, batch_list):
-    optimizer = optim.SGD([lr.W, lr.b], lr=0.01)
+def train(lrModel, dataset):
+    optimizer = optim.Adam(lrModel.parameters(), lr=0.01)
 
     # in your training loop:
     optimizer.zero_grad()   # zero the gradient buffers
-    for batch in batch_list:
-        prediction = lr(batch)  # probabilities
-        loss = (batch.label.float() - prediction).abs().sum('batch')
+    losses = []
+    for i, batch in enumerate(dataset):
+        optimizer.zero_grad()   # zero the gradient buffers
+        
+        loss = lrModel.loss(batch) #loss = (batch.label.float() - prediction).abs().sum('batch')
         loss.backward()
         optimizer.step()
-lr.train([batch])
-print(y)
+        losses.append(loss.item())
+        if i%200==0 and not i==0:
+            print(f"iteration {i}")
+            print(f"moving average loss={sum(losses[-1-100:-1])/100.}")
+            val_losses = []
+            for vbatch in val_iter:
+                val_losses.append( lrModel.loss(vbatch).item())
+            val_loss = sum(val_losses)/len(val_losses)
+            print(f"val loss: {val_loss}")
+#import ipdb; ipdb.set_trace()
+
+if __name__=='__main__':
+#print("params", lr.parameters())
+    lrModel = logisticRegression(TEXT.vocab.vectors.size()[0], None)
+
+    for i in range(10):
+        print(f"epoch {i}")
+        train(lrModel, train_iter)
+
+
+    test_code(lrModel)
+
+
