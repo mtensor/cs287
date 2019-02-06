@@ -24,7 +24,7 @@ LABEL.build_vocab(train)
 device=torch.device("cpu")
 
 train_iter, val_iter, test_iter = torchtext.data.BucketIterator.splits(
-    (train, val, test), batch_size=10, device=device)
+    (train, val, test), batch_size=100, device=device)
 
 
 
@@ -56,24 +56,26 @@ class CBOW(ntorch.nn.Module):
         super(CBOW, self).__init__()
         self.vocabSize = vocabSize
         self.embedSize = embedSize
-        self.Vsize = 1000
+        self.Vsize = 20
 
         # self.Wb = ntorch.nn.Linear(self.embedSize, 1)
         #self.W = Variable ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",)))
         self.V = ntorch.nn.Linear(self.embedSize, self.Vsize).spec("vocab", "embedding")
         self.U = ntorch.nn.Linear(self.Vsize, 1).spec("embedding", "score")
+        self.dropout = ntorch.nn.Dropout(0.9)
         # self.relu = ntorch.nn.ReLU().spec("singular", "singular")
         #self.b = ntorch.tensor(0., names=())
-        self.lossfn = ntorch.nn.CrossEntropyLoss().spec("classes")
+        self.lossfn = ntorch.nn.NLLLoss().spec("classes")
 
     def predict(self, x):
         # import ipdb; ipdb.set_trace()
         # y = self.Wb
         #y = (self.W.index_select('vocab', x.long()).sum('vocab') + self.b).sigmoid()
-        y_ = self.U(self.V(x).relu().sum("seqlen")).sigmoid().sum('score')
+        y_ = self.U(self.dropout(self.V(x)).relu().sum("seqlen")).sum('score').sigmoid()
+        # y_ = self.U(self.V(x).relu().sum("seqlen")).sum('score')
         # y_ = self.relu(self.W(x)).sigmoid().sum('singular') # this is a huge hack
 
-        y = ntorch.stack([y_, 1-y_], 'classes') #.log_softmax('classes')
+        y = ntorch.stack([y_, 1.-y_], 'classes') #.log_softmax('classes')
         return y
 
     def forward(self, batchText):
@@ -97,36 +99,58 @@ class CBOW(ntorch.nn.Module):
         #print("predict", prediction)
         #print('predict size', prediction.shape)
         #print("label", batch.label)
-        return self.lossfn(prediction, batch.label)
+        return self.lossfn(prediction.log(), batch.label)
+
+    def acc(self, batch):
+        prediction = self(batch.text)  # probabilities
+        acc = (batch.label == prediction.argmax("classes")).float().mean("batch")
+
+        #print("predict", prediction)
+        #print('predict size', prediction.shape)
+        #print("label", batch.label)
+        return acc
 
 def train(cbow, dataset):
-    optimizer = optim.Adam(cbow.parameters(), lr=0.0001)
+    optimizer = optim.Adam(cbow.parameters(), lr=0.001)
 
     # in your training loop:
     optimizer.zero_grad()   # zero the gradient buffers
-    losses = []
     for i, batch in enumerate(dataset):
+        cbow.train()
         optimizer.zero_grad()   # zero the gradient buffers
 
         loss = cbow.loss(batch) #loss = (batch.label.float() - prediction).abs().sum('batch')
         loss.backward()
         optimizer.step()
-        losses.append(loss.item())
-        if i%200==0 and not i==0:
+        if i%60==0 and not i==0:
+            cbow.eval()
+            train_losses = []
+            train_accs = []
+            for tbatch in train_iter:
+                train_losses.append( cbow.loss(tbatch).item())
+                train_accs.append( cbow.acc(tbatch).item())
+            train_loss = sum(train_losses)/len(train_losses)
+            train_accs = sum(train_accs)/len(train_accs)
+            print(f"train loss: {train_loss}")
+            print(f"train acc: {train_accs}")
             print(f"iteration {i}")
-            print(f"moving average loss={sum(losses[-1-100:-1])/100.}")
+            # print(f"moving average loss={sum(losses[-1-100:-1])/100.}")
             val_losses = []
+            val_accs = []
             for vbatch in val_iter:
                 val_losses.append( cbow.loss(vbatch).item())
+                val_accs.append( cbow.acc(vbatch).item())
             val_loss = sum(val_losses)/len(val_losses)
+            val_accs = sum(val_accs)/len(val_accs)
             print(f"val loss: {val_loss}")
+            print(f"val acc: {val_accs}")
 #import ipdb; ipdb.set_trace()
 
 if __name__=='__main__':
 #print("params", lr.parameters())
     cbow = CBOW(TEXT.vocab.vectors.size()[0], TEXT.vocab.vectors.size()[1])
 
-    for i in range(10):
+    for i in range(50):
         print(f"epoch {i}")
         train(cbow, train_iter)
 
