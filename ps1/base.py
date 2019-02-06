@@ -125,7 +125,7 @@ class naiveBayesModel(nn.Module):
         # tensor_c = ntorch.stack([tensor_a, tensor_b], "dim3")
 
         print("y_", y_)
-        y = ntorch.stack([y_<0, y>=0], 'classes')
+        y = ntorch.stack([y_<0,y_>=0], 'classes')
 
         return y
 
