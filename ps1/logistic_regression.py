@@ -1,4 +1,5 @@
 import torch
+from torch import optim
 # Text text processing library and methods for pretrained word embeddings
 import torchtext
 from torchtext.vocab import Vectors, GloVe
@@ -20,8 +21,10 @@ train, val, test = torchtext.datasets.SST.splits(
 TEXT.build_vocab(train)
 LABEL.build_vocab(train)
 
+device=torch.device("cpu")
+
 train_iter, val_iter, test_iter = torchtext.data.BucketIterator.splits(
-    (train, val, test), batch_size=10, device=torch.device("cuda"))
+    (train, val, test), batch_size=10, device=device)
 
 batch = next(iter(train_iter))
 print("Size of text batch:", batch.text.shape)
@@ -121,19 +124,25 @@ print("Word embedding of 'follows', first 10 dim ", TEXT.vocab.vectors[TEXT.voca
 
 class logisticRegression(torch.nn.Module):
     #uses binarized version
-    def __init__(self, vocabSize, batchSize):
+    def __init__(self, vocabSize, embedSize):
         super(logisticRegression, self).__init__()
         self.vocabSize = vocabSize
+        self.embedSize = embedSize
 
-        self.W = ntorch.randn(self.vocabSize, requires_grad=True, names=("vocab",))
-        self.b = ntorch.randn(self.vocabSize, requires_grad=True, names=("vocab",))
+        # self.Wb = ntorch.nn.Linear(self.embedSize, 1)
+        self.W = ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",))
+        self.b = ntorch.tensor(0., names=())
 
-    # def train()
-    #
-    #     y.backward()
+
+    def batchTrain(self, batch):
+        prediction = self.forward(batch)  # probabilities
+        loss = (batch.label.float() - prediction).abs().sum('batch')
+
+        loss.backward()
 
     def predict(self, x):
-        y = (self.W.index_select(x, 'vocab').sum('vocab') + self.b).sigmoid()
+        # y = self.Wb
+        y = (self.W.index_select('vocab', x.long()).sum('vocab') + self.b).sigmoid()
         return y
 
     def forward(self, batch):
@@ -142,8 +151,8 @@ class logisticRegression(torch.nn.Module):
 
     def convertToX(self, batch):
         #this function makes the feature vectors wth scatter
-        x = ntorch.tensor( torch.zeros(self.vocabSize, batch.text.shape['batch']).cuda(), ('vocab', 'batch'))
-        y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'], batch.text.shape['batch']).cuda(), ('seqlen', 'batch'))
+        x = ntorch.tensor( torch.zeros(self.vocabSize, batch.text.shape['batch'], device=device), ('vocab', 'batch'))
+        y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'], batch.text.shape['batch'], device=device), ('seqlen', 'batch'))
 
         x.scatter_('vocab', batch.text, y, 'seqlen')
 
@@ -151,4 +160,18 @@ class logisticRegression(torch.nn.Module):
         return x
 
 
+lr = logisticRegression(TEXT.vocab.vectors.size()[0], TEXT.vocab.vectors.size()[1])
 import ipdb; ipdb.set_trace()
+
+def train(self, batch_list):
+    optimizer = optim.SGD([lr.W, lr.b], lr=0.01)
+
+    # in your training loop:
+    optimizer.zero_grad()   # zero the gradient buffers
+    for batch in batch_list:
+        prediction = lr(batch)  # probabilities
+        loss = (batch.label.float() - prediction).abs().sum('batch')
+        loss.backward()
+        optimizer.step()
+lr.train([batch])
+print(y)
