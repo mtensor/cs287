@@ -65,92 +65,89 @@ def test_code(model):
             f.write(str(i) + "," + str(u) + "\n")
 
 class baseModel(nn.Module):
-	def __init__(self):
-		super(baseModel, self).__init__()
+    def __init__(self):
+        super(baseModel, self).__init__()
 
 
 class naiveBayesModel(nn.Module):
-	#uses binarized version
-	def __init__(self, dataset, vocabSize, batchSize, alpha=1):
-		super(naiveBayesModel, self).__init__()
+    #uses binarized version
+    def __init__(self, dataset, vocabSize, batchSize, alpha=1):
+        super(naiveBayesModel, self).__init__()
 
+        self.vocabSize = vocabSize
+        #schematically:
+        N_p = 0
+        N_m = 0
+        p = ntorch.tensor(torch.ones(vocabSize) * alpha, ['vocab']).cuda() #batchsize?
+        q = ntorch.tensor(torch.ones(vocabSize) * alpha, ['vocab']).cuda() #batchsize?
 
-		self.vocabSize = vocabSize
-		#schematically:
-		N_p = 0
-		N_m = 0
-		p = ntorch.tensor(torch.ones(vocabSize) * alpha, ['vocab']).cuda() #batchsize?
-		q = ntorch.tensor(torch.ones(vocabSize) * alpha, ['vocab']).cuda() #batchsize?
+        ones = ntorch.tensor(torch.ones(vocabSize, batchSize), ['vocab', 'batch'])
+        zeros = ntorch.tensor(torch.zeros(vocabSize, batchSize), ['vocab', 'batch'])
 
-		ones = ntorch.tensor(torch.ones(vocabSize, batchSize), ['vocab', 'batch'])
-		zeros = ntorch.tensor(torch.zeros(vocabSize, batchSize), ['vocab', 'batch'])
+        for i, batch in enumerate(dataset):
+            if i%100==0: print(f"iteration {i}")
 
-		for i, batch in enumerate(dataset):
-			if i%100==0: print(f"iteration {i}")
+            #gets binarized set-of-words
+            f = self.convertToX(batch.text)
+            #f = torch.where(x > 0, torch.ones(f.size()), torch.zeros(f.size()))  # TODO
 
-			#gets binarized set-of-words
-			f = self.convertToX(batch.text)
-			#f = torch.where(x > 0, torch.ones(f.size()), torch.zeros(f.size()))  # TODO
+            #p += ntorch.where(batch.label==1., ones, zeros).sum('batch')
+            #q += ntorch.where(batch.label==0., ones, zeros).sum('batch')
 
-			#p += ntorch.where(batch.label==1., ones, zeros).sum('batch')
-			#q += ntorch.where(batch.label==0., ones, zeros).sum('batch')
+            p += ntorch.dot("batch", batch.label.float(), f) #hopefully this works
+            q += ntorch.dot("batch", (batch.label==0.).float(), f) #hopefully this works
 
-			p += ntorch.dot("batch", batch.label.float(), f) #hopefully this works
-			q += ntorch.dot("batch", (batch.label==0.).float(), f) #hopefully this works
+            #print("q update:", (batch.label==0.).float())
+            #print("p update:", batch.label.float())
+            #assert False
 
-			#print("q update:", (batch.label==0.).float())
-			#print("p update:", batch.label.float())
-			#assert False
+            _n = batch.label.sum("batch").item()
+            N_p += _n
+            N_m += batchSize - _n
+        r = ntorch.log( (p / p.sum('vocab').item()) )  - ntorch.log(q / q.sum('vocab').item())   # TODO
 
-			_n = batch.label.sum("batch").item()
-			N_p += _n 
-			N_m += batchSize - _n
+        self.W = r
+        self.b = ntorch.tensor(math.log(N_p / N_m), []).cuda()  # TODO
 
-		r = ntorch.log( (p / p.sum('vocab').item()) )  - ntorch.log(q / q.sum('vocab').item())   # TODO
+        print("b", self.b)
+        print("W", self.W)
 
-		self.W = r
-		self.b = ntorch.tensor(math.log(N_p / N_m), []).cuda()  # TODO
+        print("N_p", N_p)
+        print("N_m", N_m)
+        print("sum W", self.W.sum("vocab"))
+        # assert False
 
-		print("b", self.b)
-		print("W", self.W)
+    def predict(self, x):
+        #y = ntorch.tensor(torch.sign(self.W.index_select(x, 'vocab').sum('vocab') + self.b), ['classes', 'batch']) #TODO: sign function, mm
+        y_ = self.W.dot('vocab', x) + self.b
+        # tensor_a = ntorch.tensor(torch.Tensor([[1, 2], [3, 4]]), ("dim1", "dim2")
+        # tensor_b = ntorch.tensor(torch.Tensor([[1, 2], [3, 4]]), ("dim1", "dim2"))
+        # tensor_c = ntorch.stack([tensor_a, tensor_b], "dim3")
 
-		print("N_p", N_p)
-		print("N_m", N_m)
-		print("sum W", self.W.sum("vocab"))
-		assert False
+        print("y_", y_)
+        y = ntorch.stack([y_<0, y>=0], 'classes')
 
-	def predict(self, x):
-		#y = ntorch.tensor(torch.sign(self.W.index_select(x, 'vocab').sum('vocab') + self.b), ['classes', 'batch']) #TODO: sign function, mm
-		y_ = self.W.index_select('vocab', x.long()).sum('vocab').float() + self.b
-		# tensor_a = ntorch.tensor(torch.Tensor([[1, 2], [3, 4]]), ("dim1", "dim2")
-		# tensor_b = ntorch.tensor(torch.Tensor([[1, 2], [3, 4]]), ("dim1", "dim2"))
-		# tensor_c = ntorch.stack([tensor_a, tensor_b], "dim3")
-		
-		print("y_", y_)
-		y = ntorch.stack([y_>=0, y_<0], 'classes')
+        return y
 
-		return y
+    def forward(self, text):
+        x = self.convertToX(text)
+        return self.predict(x)
 
-	def forward(self, text):
-		x = self.convertToX(text)
-		return self.predict(x)
+    def convertToX(self, batchText):
+        #this function makes the feature vectors wth scatter
+        x = ntorch.tensor( torch.zeros(self.vocabSize, batchText.shape['batch']).cuda(), ('vocab', 'batch'))
+        y = ntorch.tensor( torch.ones(batchText.shape['seqlen'], batchText.shape['batch']), ('seqlen', 'batch')).cuda()
+        x.scatter_('vocab', batchText, y, 'seqlen')
 
-	def convertToX(self, batchText):
-		#this function makes the feature vectors wth scatter
-		x = ntorch.tensor( torch.zeros(self.vocabSize, batchText.shape['batch']).cuda(), ('vocab', 'batch'))
-		y = ntorch.tensor( torch.ones(batchText.shape['seqlen'], batchText.shape['batch']), ('seqlen', 'batch')).cuda()
-		x.scatter_('vocab', batchText, y, 'seqlen')
+        #print("x", x)
+        #print(x.sum("vocab"))
 
-		#print("x", x)
-		#print(x.sum("vocab"))
-	
-		return x
+        return x
 
 
 if __name__=='__main__':
-	model = naiveBayesModel(train_iter, len(TEXT.vocab), 10, alpha=1)
-
-	test_code(model)
+    model = naiveBayesModel(train_iter, len(TEXT.vocab), 10, alpha=1)
+    test_code(model)
 
 # #x = ntorch.tensor( torch.zeros(batch.text.shape['seqlen'],batch.text.shape['batch']), ('seqlen', 'batch'))
 # x = ntorch.tensor( torch.zeros(vocabSize, batch.text.shape['batch']).cuda(), ('vocab', 'batch'))
@@ -158,7 +155,3 @@ if __name__=='__main__':
 # y = ntorch.tensor( torch.ones(batch.text.shape['seqlen'],batch.text.shape['batch']).cuda(), ('seqlen', 'batch'))
 
 # x.scatter_('vocab', batch.text, y, 'seqlen')
-
-
-
-
