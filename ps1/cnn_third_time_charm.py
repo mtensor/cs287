@@ -25,7 +25,7 @@ train_iter, val_iter, test_iter = torchtext.data.BucketIterator.splits(
     (train, val, test), batch_size=64, device=device)
 
 # TEXT.vocab.load_vectors()
-TEXT.build_vocab(train, max_size=25000, vectors="glove.6B.100d")
+TEXT.build_vocab(train, max_size=25000, vectors="glove.840B.300d")
 LABEL.build_vocab(train)
 
 
@@ -59,8 +59,8 @@ class CNN(ntorch.nn.Module):
         super(CNN, self).__init__()
         self.vocabSize = vocabSize
         self.embedSize = embedSize
-        self.kernel_sizes = [3, 4, 5]
-        self.n_filters = 200
+        self.kernel_sizes = [3, 4, 5, 6]
+        self.n_filters = 100
 
         # self.Wb = ntorch.nn.Linear(self.embedSize, 1)
         #self.W = Variable ntorch.tensor(torch.zeros((self.vocabSize), requires_grad=True), ("vocab",)))
@@ -71,7 +71,7 @@ class CNN(ntorch.nn.Module):
             in_channels=self.embedSize,
             out_channels=self.n_filters,
             kernel_size=(kernel_size),
-            padding=1)
+            padding=2)
             for kernel_size in self.kernel_sizes])
         self.fc = ntorch.nn.Linear(
             self.n_filters * len(self.kernel_sizes), 2
@@ -117,7 +117,7 @@ class CNN(ntorch.nn.Module):
         return acc
 
 def train(cnn, dataset):
-    optimizer = optim.Adam(cnn.parameters(), lr=0.001)
+    optimizer = optim.Adam(cnn.parameters(), lr=0.0001)
 
     # in your training loop:
     for i, batch in enumerate(dataset):
@@ -151,7 +151,7 @@ def train(cnn, dataset):
             print(f"val loss: {val_loss}")
             print(f"val acc: {val_accs}")
 
-    return cnn, val_accs
+    return cnn, val_loss
 #import ipdb; ipdb.set_trace()
 
 if __name__=='__main__':
@@ -162,11 +162,11 @@ if __name__=='__main__':
     cnn.embedding.weight.data.copy_(pretrained_embeddings)
 
     model_acc_list = []
-    for i in range(20):
+    for i in range(40):
         print(f"epoch {i}")
-        curr_model, val_accs = train(cnn, train_iter)
+        curr_model, val_loss = train(cnn, train_iter)
         model_copy = copy.deepcopy(curr_model)
-        model_acc_list.append([model_copy, val_accs])
+        model_acc_list.append([model_copy, val_loss])
 
-    best_model, _ = max(model_acc_list, key=lambda x: x[1])
+    best_model, _ = min(model_acc_list, key=lambda x: x[1])
     test_code(best_model)
