@@ -117,7 +117,7 @@ class CNN(ntorch.nn.Module):
         return acc
 
 def train(cnn, dataset):
-    optimizer = optim.Adam(cnn.parameters(), lr=0.001)
+    optimizer = optim.Adam(cnn.parameters(), lr=0.001, weight_decay=0.01)
 
     # in your training loop:
     for i, batch in enumerate(dataset):
