@@ -118,9 +118,9 @@ class CNN(nn.Module):
             conv_blocks.append(conv1d)
         self.conv_blocks = nn.ModuleList(conv_blocks)
         self.fc = ntorch.nn.Linear(
-            num_filters * len(kernel_sizes), 1
-        ).spec("features", "singular")
-        self.dropout = ntorch.nn.Dropout(0.9)
+            num_filters * len(kernel_sizes), 2
+        ).spec("features", "classes")
+        self.dropout = ntorch.nn.Dropout(0.8)
 
         self.lossfn = ntorch.nn.NLLLoss().spec("classes")
 
@@ -135,19 +135,14 @@ class CNN(nn.Module):
         out = ntorch.cat(x_list, "features")
         #print("out shape", out.shape)
         feature_extracted = out
-        y_ = self.fc(self.dropout(out)).sum("singular").sigmoid()
-
-        out = ntorch.stack([y_, 1-y_], 'classes')
+        out = self.fc(self.dropout(out)).log_softmax("classes")
         #print("out2 shape", out.shape)
         #assert False
         return out
 
     def loss(self, batch):
         prediction = self(batch.text)  # probabilities
-        #print("predict", prediction)
-        #print('predict size', prediction.shape)
-        #print("label", batch.label)
-        return self.lossfn(prediction.log(), batch.label)
+        return self.lossfn(prediction, batch.label)
 
 
 # embedding_dim = 300
@@ -175,14 +170,13 @@ if __name__ == "__main__":
 
     loss_fn = nn.NLLLoss()
 
-    for epoch in range(30):
+    for epoch in range(20):
         tic = time.time()
         # eval_acc, sentence_vector = evaluate(model, x_test, y_test)
         model.train()
 
-        batch = next(iter(train_iter))
-        
-        i = 0
+        #batch = next(iter(train_iter))
+        #i = 0
         losses = []
         # while i < 200:
         #     i += 1
