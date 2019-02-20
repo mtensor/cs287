@@ -66,13 +66,20 @@ train_iter, val_iter, test_iter = NamedBpttIterator.splits(
     (train, val, test), batch_size=10, device=torch.device("cuda"), bptt_len=32, repeat=False)
 
 LSTMmodel(nn.Module):
-    def __init__(self, embedding_size=128, hidden_size=512, num_layers=1):
+    def __init__(self, embedding_size=128, hidden_size=512, num_layers=1, vocab_size=1001, use_pretrained=False):
         super(LSTMmodel, self).__init__()
 
+        
+        self.embedding = ntorch.nn.Embedding(
+                    vocab_size, embedding_size
+                )#.augment("h")
+        if use_pretrained:
+            self.embedding.weight.data.copy_(pretrained_embeddings)
+            self.embedding.weight.requires_grad = mode == "nonstatic"
+        
+        #decoder, outputs to "vocab"
 
-            #encoder
-            #decoder, outputs to "vocab"
-            #(seq_len, batch_size, features)
+        #(seq_len, batch_size, features)
         self.lstm = nn.LSTM(embedding_size,
                             hidden_size=hidden_size,
                             num_layers=num_layers,
@@ -80,11 +87,14 @@ LSTMmodel(nn.Module):
                             dropout = 0.3
                             ).spec("input", "seqlen", "output")
 
+        self.decoder = ntorch.nn.Linear(
+            num_filters * len(kernel_sizes), vocab_size
+        ).spec("hidden_size", "vocab")
         self.lossfn = ntorch.nn.CrossEntropyLoss().spec("vocab") 
 
     def forward(self, batch):
 
-        out, hiddens = self.lstm(batch)
+        out, _ = self.lstm(batch)
 
         dist = self.decoder(out)
         #out is a dist over vocab for the batches, log likelihood space 
@@ -96,7 +106,7 @@ LSTMmodel(nn.Module):
 
 
 def test_code(model):
-    
+    assert False
 
 if __name__ == "__main__":
 
@@ -132,7 +142,7 @@ if __name__ == "__main__":
             )
         )
 
-    model.cpu()
+    #model.cpu()
     model.eval()
     test_code(model)
 
