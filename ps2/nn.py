@@ -15,7 +15,9 @@ import math
 
 bptt_len = 5
 mode = 'nonstatic'
-device=torch.device("cuda")
+device = torch.device("cuda")
+use_pretrained = True
+batch_size = 256
 # Our input $x$
 TEXT = NamedField(names=("seqlen",))
 
@@ -25,13 +27,17 @@ train, val, test = torchtext.datasets.LanguageModelingDataset.splits(
     path=".",
     train="train.txt", validation="valid.txt", test="valid.txt", text_field=TEXT)
 
-#print('len(train)', len(train))
-
 # TEXT.build_vocab(train)
 # print('len(TEXT.vocab)', len(TEXT.vocab))
 
-if True:
-    TEXT.build_vocab(train, max_size=25000, vectors="glove.840B.300d")
+if use_pretrained:
+    TEXT.build_vocab(train, max_size=1000, vectors="glove.840B.300d")
+    vocab_size, embed_size = TEXT.vocab.vectors.size()
+
+else:
+    TEXT.build_vocab(train, max_size=20000)
+    vocab_size = 20002
+    embed_size = 60
 
 
 class NamedBpttIterator(BPTTIterator):
@@ -66,10 +72,10 @@ class NamedBpttIterator(BPTTIterator):
 
 
 train_iter, val_iter, test_iter = NamedBpttIterator.splits(
-    (train, val, test), batch_size=100, device=device, bptt_len=bptt_len, repeat=False)
+    (train, val, test), batch_size=batch_size, device=device, bptt_len=bptt_len, repeat=False)
 
 class NNmodel(nn.Module):
-    def __init__(self, embedding_size=128, hidden_size=512, vocab_size=1002, bptt_len=bptt_len, use_pretrained=False):
+    def __init__(self, embedding_size=60, hidden_size=512, vocab_size=1002, bptt_len=bptt_len, use_pretrained=False):
         super(NNmodel, self).__init__()
         self.vocabSize = vocab_size
 
@@ -82,13 +88,15 @@ class NNmodel(nn.Module):
 
         self.H = ntorch.nn.Linear(bptt_len * embedding_size, hidden_size).spec("seqembedding", "hidden")
         self.W = ntorch.nn.Linear(hidden_size, vocab_size).spec("hidden", "vocab")
+        self.dropout1 = ntorch.nn.Dropout(0.9)
+        self.dropout2 = ntorch.nn.Dropout(0.1)
 
         self.lossfn = ntorch.nn.CrossEntropyLoss().spec("vocab")
 
     def forward(self, batch):
-        out = self.embedding(batch)
+        out = self.dropout1(self.embedding(batch))
         out = out.stack(("embedding", "seqlen"), "seqembedding")
-        out = self.H(out).relu()
+        out = self.dropout2(self.H(out).relu())
         out = self.W(out)
 
         return out
@@ -108,9 +116,9 @@ def test_code(model):
 if __name__ == "__main__":
     # import ipdb; ipdb.set_trace()
     pretrained_embeddings = TEXT.vocab.vectors
-    model = NNmodel(vocab_size=TEXT.vocab.vectors.size()[0],
-                    embedding_size=TEXT.vocab.vectors.size()[1],
-                    use_pretrained=True)
+    model = NNmodel(vocab_size=vocab_size,
+                    embedding_size=embed_size,
+                    use_pretrained=use_pretrained)
     #TODO use pretrained embeddings
     model.to(device)
 
@@ -123,6 +131,8 @@ if __name__ == "__main__":
         model.train()
         losses = []
         for i, batch in enumerate(train_iter):
+            if batch.text.shape['seqlen'] < 5:
+                continue
             optimizer.zero_grad()
             loss = model.loss(batch)
             loss.backward()
