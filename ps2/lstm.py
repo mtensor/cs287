@@ -28,12 +28,12 @@ train, val, test = torchtext.datasets.LanguageModelingDataset.splits(
 
 
 if use_pretrained:
-    TEXT.build_vocab(train, max_size=1000, vectors="glove.840B.300d")
+    TEXT.build_vocab(train, vectors="glove.840B.300d")
     vocab_size, embed_size = TEXT.vocab.vectors.size()
     print("embedding size", embed_size)
 
 else:
-    TEXT.build_vocab(train, max_size=1000)
+    TEXT.build_vocab(train)
     vocab_size = 1002
     embed_size = 128
 
@@ -74,7 +74,7 @@ train_iter, val_iter, test_iter = NamedBpttIterator.splits(
     (train, val, test), batch_size=10, device=torch.device("cuda"), bptt_len=32, repeat=False)
 
 class LSTMmodel(nn.Module):
-    def __init__(self, embedding_size=embed_size, hidden_size=512, num_layers=1, vocab_size=1002, use_pretrained=False):
+    def __init__(self, embedding_size=embed_size, hidden_size=512, num_layers=2, vocab_size=10001, use_pretrained=False, dropout=0.3):
         super(LSTMmodel, self).__init__()
 
         
@@ -92,7 +92,7 @@ class LSTMmodel(nn.Module):
                             hidden_size=hidden_size,
                             num_layers=num_layers,
                             batch_first=False,
-                            dropout = 0.3
+                            dropout=dropout
                             ).spec("embedding", "seqlen", "output")
 
         self.decoder = ntorch.nn.Linear(
@@ -116,21 +116,26 @@ class LSTMmodel(nn.Module):
         return self.lossfn(prediction, batch.target)
 
 
-def test_code(model):
-    #TODO .. fix test code
-    with open("sample.txt", "w") as fout:
+def test_code(model, name):
+    #Cannot be the same code as in nn.py, because 
+    with open(name, "w") as fout:
         print("id,word", file=fout)
         for i, l in enumerate(open("input.txt"), 1):
             #w_2, w_1 = l.split(' ')[-3: -1]
-            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')]
+            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[:-1]]
             batch = torch.tensor(batch).unsqueeze(1)
             batch = ntorch.tensor(batch, names=("seqlen", "batch")).cuda()
-            #prediction_dict = Counter()  
-            prediction_dist = model(batch)
+            #print(batch.shape)
 
-            #prediction_dict[TEXT.vocab.stoi["<eos>"]] = 0
-            #prediction_dict[TEXT.vocab.stoi["<unk>"]] = 0
-            #prediction_dict[TEXT.vocab.stoi["<pad>"]] = 0
+            prediction_dist = model(batch).double()
+            mask = np.zeros(vocab_size)
+            mask[TEXT.vocab.stoi["<eos>"]] = float('-inf')
+            mask[TEXT.vocab.stoi["<unk>"]] = float('-inf')
+            mask[TEXT.vocab.stoi["<pad>"]] = float('-inf')
+
+            torch_mask = ntorch.tensor(torch.from_numpy(mask), names=('vocab')).to(device=device)
+
+            prediction_dist += torch_mask
             
             prediction_dist = prediction_dist.get("seqlen", prediction_dist.shape['seqlen'] -1)
             #predictions = [TEXT.vocab.itos[i] for i in prediction_dist.topk("vocab", 20)[1] ]
@@ -146,14 +151,14 @@ if __name__ == "__main__":
 
     debug = False
     pretrained_embeddings = TEXT.vocab.vectors
-    model = LSTMmodel(embedding_size=embed_size, use_pretrained=use_pretrained) #TODO
+    model = LSTMmodel(embedding_size=embed_size, use_pretrained=use_pretrained, dropout=0.5) #TODO
     model.cuda()
     #model.cpu()
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = torch.optim.Adam(parameters, lr=0.001)
 
-    for epoch in range(5 if not debug else 1):
+    for epoch in range(8 if not debug else 1):
         tic = time.time()
         # eval_acc, sentence_vector = evaluate(model, x_test, y_test)
         model.train()
@@ -188,9 +193,12 @@ if __name__ == "__main__":
             )
         )
 
-    #model.cpu()
-    model.eval()
-    test_code(model)
+        print("running test code")
+        name = "sample_"+ str(epoch) +".txt"
+        test_code(model, name)
+
+        print("ran test code")
+    
 
 
 
