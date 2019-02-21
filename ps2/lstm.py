@@ -13,6 +13,9 @@ from torchtext.data import Batch, Dataset
 import math
 import time
 
+use_pretrained = True
+mode = 'nonstatic'
+device = torch.device("cuda")
 
 # Our input $x$
 TEXT = NamedField(names=("seqlen",))
@@ -22,14 +25,18 @@ train, val, test = torchtext.datasets.LanguageModelingDataset.splits(
     path=".",
     train="train.txt", validation="valid.txt", test="valid.txt", text_field=TEXT)
 
-#print('len(train)', len(train))
 
-# TEXT.build_vocab(train)
-# print('len(TEXT.vocab)', len(TEXT.vocab))
 
-if True:
+if use_pretrained:
+    TEXT.build_vocab(train, max_size=1000, vectors="glove.840B.300d")
+    vocab_size, embed_size = TEXT.vocab.vectors.size()
+    print("embedding size", embed_size)
+
+else:
     TEXT.build_vocab(train, max_size=1000)
-    len(TEXT.vocab)
+    vocab_size = 1002
+    embed_size = 128
+
 
 
 class NamedBpttIterator(BPTTIterator):
@@ -67,7 +74,7 @@ train_iter, val_iter, test_iter = NamedBpttIterator.splits(
     (train, val, test), batch_size=10, device=torch.device("cuda"), bptt_len=32, repeat=False)
 
 class LSTMmodel(nn.Module):
-    def __init__(self, embedding_size=128, hidden_size=512, num_layers=1, vocab_size=1002, use_pretrained=False):
+    def __init__(self, embedding_size=embed_size, hidden_size=512, num_layers=1, vocab_size=1002, use_pretrained=False):
         super(LSTMmodel, self).__init__()
 
         
@@ -75,7 +82,6 @@ class LSTMmodel(nn.Module):
                     vocab_size, embedding_size
                 )
         if use_pretrained:
-            assert False, "need pretrained embeddings"
             self.embedding.weight.data.copy_(pretrained_embeddings)
             self.embedding.weight.requires_grad = mode == "nonstatic"
         
@@ -139,7 +145,8 @@ def test_code(model):
 if __name__ == "__main__":
 
     debug = False
-    model = LSTMmodel() #TODO
+    pretrained_embeddings = TEXT.vocab.vectors
+    model = LSTMmodel(embedding_size=embed_size, use_pretrained=use_pretrained) #TODO
     model.cuda()
     #model.cpu()
 
