@@ -14,6 +14,9 @@ import math
 
 from itertools import islice
 
+import nltk
+from nltk.corpus import brown
+
 
 # Our input $x$
 TEXT = NamedField(names=("seqlen",))
@@ -31,6 +34,13 @@ print('len(TEXT.vocab)', len(TEXT.vocab))
 if False:
     TEXT.build_vocab(train, max_size=1000)
     len(TEXT.vocab)
+
+nltk.download('brown')
+brown_1gram = nltk.FreqDist(brown.words())
+brown_2gram = nltk.ConditionalFreqDist(nltk.bigrams(brown.words()))
+brown_trigrams = nltk.trigrams(brown.words())
+condition_pairs = (((w0, w1), w2) for w0, w1, w2 in brown_trigrams)
+brown_3gram = nltk.ConditionalFreqDist(condition_pairs)
 
 
 class NamedBpttIterator(BPTTIterator):
@@ -82,23 +92,23 @@ for b in iter(train_iter):
     bigram_count.update(zip(words, words[1:]))
     trigram_count.update(zip(words, words[1:], words[2:]))
 
-import ipdb; ipdb.set_trace()
 
 with open("sample.txt", "w") as fout:
     print("id,word", file=fout)
     for i, l in enumerate(open("input.txt"), 1):
         w_2, w_1 = l.split(' ')[-3: -1]
-        w_2, w_1 = TEXT.vocab.stoi[w_2], TEXT.vocab.stoi[w_1]
+        # w_2, w_1 = TEXT.vocab.stoi[w_2], TEXT.vocab.stoi[w_1]
         prediction_dict = Counter()
         for word in range(len(TEXT.vocab)):
-            unigram_score = unigram_count[word]
-            bigram_score = bigram_count[(w_1, word)]
-            trigram_score = trigram_count[(w_2, w_1, word)]
+            word = TEXT.vocab.itos[word]
+            unigram_score = brown_1gram[word]
+            bigram_score = brown_2gram[w_1][word]
+            trigram_score = brown_3gram[(w_2, w_1)][word]
             # prediction_dict[word] = trigram_score
             prediction_dict[word] = (1e20 * trigram_score) + (1e10 * bigram_score) + unigram_score
-        prediction_dict[TEXT.vocab.stoi["<eos>"]] = 0
-        prediction_dict[TEXT.vocab.stoi["<unk>"]] = 0
-        prediction_dict[TEXT.vocab.stoi["<pad>"]] = 0
-        predictions = [TEXT.vocab.itos[i] for i, c in prediction_dict.most_common(20)]
+        prediction_dict["<eos>"] = 0
+        prediction_dict["<unk>"] = 0
+        prediction_dict["<pad>"] = 0
+        predictions = [i for i, c in prediction_dict.most_common(20)]
 
         print("%d,%s"%(i, " ".join(predictions)), file=fout)

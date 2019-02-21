@@ -14,7 +14,7 @@ from torchtext.data.iterator import BPTTIterator
 from torchtext.data import Batch, Dataset
 import math
 
-bptt_len = 5
+bptt_len = 10
 mode = 'nonstatic'
 device = torch.device("cuda")
 use_pretrained = True
@@ -32,7 +32,7 @@ train, val, test = torchtext.datasets.LanguageModelingDataset.splits(
 # print('len(TEXT.vocab)', len(TEXT.vocab))
 
 if use_pretrained:
-    TEXT.build_vocab(train, max_size=1000, vectors="glove.840B.300d")
+    TEXT.build_vocab(train, vectors="glove.840B.300d")
     vocab_size, embed_size = TEXT.vocab.vectors.size()
 
 else:
@@ -76,7 +76,7 @@ train_iter, val_iter, test_iter = NamedBpttIterator.splits(
     (train, val, test), batch_size=batch_size, device=device, bptt_len=bptt_len, repeat=False)
 
 class NNmodel(nn.Module):
-    def __init__(self, embedding_size=60, hidden_size=512, vocab_size=1002, bptt_len=bptt_len, use_pretrained=False):
+    def __init__(self, embedding_size=60, hidden_size=128, vocab_size=1002, bptt_len=bptt_len, use_pretrained=False):
         super(NNmodel, self).__init__()
         self.vocabSize = vocab_size
 
@@ -95,9 +95,11 @@ class NNmodel(nn.Module):
         self.lossfn = ntorch.nn.CrossEntropyLoss().spec("vocab")
 
     def forward(self, batch):
-        out = self.dropout1(self.embedding(batch))
+        out = self.embedding(batch)
+        # out = self.dropout1(out)
         out = out.stack(("embedding", "seqlen"), "seqembedding")
-        out = self.dropout2(self.H(out).relu())
+        out = self.H(out).relu()
+        # out = self.dropout2(out)
         out = self.W(out)
 
         return out
@@ -117,7 +119,7 @@ def test_code(model):
         print("id,word", file=fout)
         for i, l in enumerate(open("input.txt"), 1):
             #w_2, w_1 = l.split(' ')[-3: -1]
-            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[-bptt_len:]]
+            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[-bptt_len-1: -1]]
             batch = torch.tensor(batch).unsqueeze(1)
             batch = ntorch.tensor(batch, names=("seqlen", "batch")).cuda()
             #prediction_dict = Counter()
@@ -152,16 +154,16 @@ if __name__ == "__main__":
     model.to(device)
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
-    optimizer = torch.optim.Adam(parameters, lr=0.001)
+    optimizer = torch.optim.Adadelta(parameters, lr=5.0)
 
     model_acc_list = []
-    for epoch in range(1):
+    for epoch in range(5):
         tic = time.time()
         # eval_acc, sentence_vector = evaluate(model, x_test, y_test)
         model.train()
         losses = []
         for i, batch in enumerate(train_iter):
-            if batch.text.shape['seqlen'] < 5:
+            if batch.text.shape['seqlen'] < bptt_len:
                 continue
             optimizer.zero_grad()
             loss = model.loss(batch)
@@ -172,7 +174,7 @@ if __name__ == "__main__":
         model.eval()
         eval_ll = 0
         for i, batch in enumerate(val_iter):
-            if batch.text.shape['seqlen'] < 5:
+            if batch.text.shape['seqlen'] < bptt_len:
                 continue
             new_eval_ll = model.loss(batch)
             eval_ll += new_eval_ll.item()
