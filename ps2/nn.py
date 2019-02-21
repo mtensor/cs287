@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torchtext
+import copy
 from torchtext.vocab import Vectors
 
 from namedtensor import ntorch
@@ -111,7 +112,35 @@ class NNmodel(nn.Module):
 
 
 def test_code(model):
-    assert False
+    #TODO .. fix test code
+    with open("sample.txt", "w") as fout:
+        print("id,word", file=fout)
+        for i, l in enumerate(open("input.txt"), 1):
+            #w_2, w_1 = l.split(' ')[-3: -1]
+            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[-bptt_len:]]
+            batch = torch.tensor(batch).unsqueeze(1)
+            batch = ntorch.tensor(batch, names=("seqlen", "batch")).cuda()
+            #prediction_dict = Counter()
+            prediction_dist = model(batch).double()
+            mask = np.zeros(vocab_size)
+            mask[TEXT.vocab.stoi["<eos>"]] = float('-inf')
+            mask[TEXT.vocab.stoi["<unk>"]] = float('-inf')
+            mask[TEXT.vocab.stoi["<pad>"]] = float('-inf')
+
+            torch_mask = ntorch.tensor(torch.from_numpy(mask), names=('vocab')).to(device=device)
+
+            prediction_dist += torch_mask
+
+
+            # prediction_dist = prediction_dist.get("seqlen", prediction_dist.shape['seqlen'] -1)
+            #predictions = [TEXT.vocab.itos[i] for i in prediction_dist.topk("vocab", 20)[1] ]
+
+            top20 = prediction_dist.topk("vocab", 20)[1]
+
+            predictions = [TEXT.vocab.itos[top20.get("vocab", i).item()] for i in range(20)]
+            #print("predictions", predictions)
+
+            print("%d,%s"%(i, " ".join(predictions)), file=fout)
 
 if __name__ == "__main__":
     # import ipdb; ipdb.set_trace()
@@ -125,7 +154,8 @@ if __name__ == "__main__":
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = torch.optim.Adam(parameters, lr=0.001)
 
-    for epoch in range(20):
+    model_acc_list = []
+    for epoch in range(1):
         tic = time.time()
         # eval_acc, sentence_vector = evaluate(model, x_test, y_test)
         model.train()
@@ -154,7 +184,11 @@ if __name__ == "__main__":
                 epoch, sum(losses)/len(losses), eval_ll, time.time() - tic
             )
         )
+        model_copy = copy.deepcopy(model)
+        model_acc_list.append([model_copy, eval_ll])
+
 
     #model.cpu()
-    model.eval()
-    test_code(model)
+    best_model, _ = min(model_acc_list, key=lambda x: x[1])
+    best_model.eval()
+    test_code(best_model)
