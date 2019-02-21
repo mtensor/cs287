@@ -117,7 +117,7 @@ def test_code(model):
         print("id,word", file=fout)
         for i, l in enumerate(open("input.txt"), 1):
             #w_2, w_1 = l.split(' ')[-3: -1]
-            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[-bptt_len:]]
+            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[-1][-bptt_len:]]
             batch = torch.tensor(batch).unsqueeze(1)
             batch = ntorch.tensor(batch, names=("seqlen", "batch")).cuda()
             #prediction_dict = Counter()
