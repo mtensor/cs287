@@ -51,3 +51,9 @@ batch = next(iter(train_iter))
 
 def escape(l):
     return l.replace("\"", "<quote>").replace(",", "<comma>")
+
+
+
+if __name__ == '__main__':
+	from seq2seq import Seq2Seq
+	m = Seq2Seq( )

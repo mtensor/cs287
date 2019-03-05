@@ -13,6 +13,10 @@ from torchtext.data import Batch, Dataset
 import math
 import time
 
+#Our imports
+from trigram import NamedBpttIterator
+from nn import test_code
+
 use_pretrained = True
 mode = 'nonstatic'
 device = torch.device("cuda")
@@ -25,8 +29,6 @@ train, val, test = torchtext.datasets.LanguageModelingDataset.splits(
     path=".",
     train="train.txt", validation="valid.txt", test="valid.txt", text_field=TEXT)
 
-
-
 if use_pretrained:
     TEXT.build_vocab(train, vectors="glove.840B.300d")
     vocab_size, embed_size = TEXT.vocab.vectors.size()
@@ -37,43 +39,10 @@ else:
     vocab_size = 1002
     embed_size = 128
 
-
-
-class NamedBpttIterator(BPTTIterator):
-    def __iter__(self):
-        text = self.dataset[0].text
-        TEXT = self.dataset.fields['text']
-        TEXT.eos_token = None
-        text = text + ([TEXT.pad_token] * int(math.ceil(len(text) / self.batch_size)
-                                              * self.batch_size - len(text)))
-        data = TEXT.numericalize(
-            [text], device=self.device)
-        data = (data
-            .stack(("seqlen", "batch"), "flat")
-            .split("flat", ("batch", "seqlen"), batch=self.batch_size)
-            .transpose("seqlen", "batch")
-        )
-
-        dataset = Dataset(examples=self.dataset.examples, fields=[
-            ('text', TEXT), ('target', TEXT)])
-        while True:
-            for i in range(0, len(self) * self.bptt_len, self.bptt_len):
-                self.iterations += 1
-                seq_len = min(self.bptt_len, len(data) - i - 1)
-                yield Batch.fromvars(
-                    dataset, self.batch_size,
-                    text = data.narrow("seqlen", i, seq_len),
-                    target = data.narrow("seqlen", i+1, seq_len),
-                )
-
-            if not self.repeat:
-                return
-
-
 train_iter, val_iter, test_iter = NamedBpttIterator.splits(
     (train, val, test), batch_size=10, device=torch.device("cuda"), bptt_len=32, repeat=False)
 
-class LSTMmodel(nn.Module):
+class LSTMmodel(torch.nn.Module):
     def __init__(self, embedding_size=embed_size, hidden_size=512, num_layers=2, vocab_size=10001, use_pretrained=False, dropout=0.3):
         super(LSTMmodel, self).__init__()
 
@@ -115,37 +84,6 @@ class LSTMmodel(nn.Module):
         prediction = self(batch.text)  # probabilities
         return self.lossfn(prediction, batch.target)
 
-
-def test_code(model, name):
-    #Cannot be the same code as in nn.py, because 
-    with open(name, "w") as fout:
-        print("id,word", file=fout)
-        for i, l in enumerate(open("input.txt"), 1):
-            #w_2, w_1 = l.split(' ')[-3: -1]
-            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[:-1]]
-            batch = torch.tensor(batch).unsqueeze(1)
-            batch = ntorch.tensor(batch, names=("seqlen", "batch")).cuda()
-            #print(batch.shape)
-
-            prediction_dist = model(batch).double()
-            mask = np.zeros(vocab_size)
-            mask[TEXT.vocab.stoi["<eos>"]] = float('-inf')
-            mask[TEXT.vocab.stoi["<unk>"]] = float('-inf')
-            mask[TEXT.vocab.stoi["<pad>"]] = float('-inf')
-
-            torch_mask = ntorch.tensor(torch.from_numpy(mask), names=('vocab')).to(device=device)
-
-            prediction_dist += torch_mask
-            
-            prediction_dist = prediction_dist.get("seqlen", prediction_dist.shape['seqlen'] -1)
-            #predictions = [TEXT.vocab.itos[i] for i in prediction_dist.topk("vocab", 20)[1] ]
-
-            top20 = prediction_dist.topk("vocab", 20)[1]
-
-            predictions = [TEXT.vocab.itos[top20.get("vocab",i).item()] for i in range(20)]
-            #print("predictions", predictions)
-
-            print("%d,%s"%(i, " ".join(predictions)), file=fout)
 
 if __name__ == "__main__":
 
@@ -195,7 +133,7 @@ if __name__ == "__main__":
 
         print("running test code")
         name = "sample_"+ str(epoch) +".txt"
-        test_code(model, name)
+        test_code(model, name=name, lstm=True)
 
         print("ran test code")
     

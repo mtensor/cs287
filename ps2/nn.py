@@ -41,37 +41,6 @@ else:
     embed_size = 60
 
 
-class NamedBpttIterator(BPTTIterator):
-    def __iter__(self):
-        text = self.dataset[0].text
-        TEXT = self.dataset.fields['text']
-        TEXT.eos_token = None
-        text = text + ([TEXT.pad_token] * int(math.ceil(len(text) / self.batch_size)
-                                              * self.batch_size - len(text)))
-        data = TEXT.numericalize(
-            [text], device=self.device)
-        data = (data
-            .stack(("seqlen", "batch"), "flat")
-            .split("flat", ("batch", "seqlen"), batch=self.batch_size)
-            .transpose("seqlen", "batch")
-        )
-
-        dataset = Dataset(examples=self.dataset.examples, fields=[
-            ('text', TEXT), ('target', TEXT)])
-        while True:
-            for i in range(0, len(self) * self.bptt_len, self.bptt_len):
-                self.iterations += 1
-                seq_len = min(self.bptt_len, len(data) - i - 1)
-                yield Batch.fromvars(
-                    dataset, self.batch_size,
-                    text = data.narrow("seqlen", i, seq_len),
-                    target = data.narrow("seqlen", i+1, seq_len),
-                )
-
-            if not self.repeat:
-                return
-
-
 train_iter, val_iter, test_iter = NamedBpttIterator.splits(
     (train, val, test), batch_size=batch_size, device=device, bptt_len=bptt_len, repeat=False)
 
@@ -113,16 +82,17 @@ class NNmodel(nn.Module):
         return self.lossfn(prediction, next_words)
 
 
-def test_code(model):
-    #TODO .. fix test code
-    with open("sample.txt", "w") as fout:
+def test_code(model, name="sample.txt", lstm=False):
+    #Cannot be the same code as in nn.py
+        with open(name, "w") as fout:
         print("id,word", file=fout)
         for i, l in enumerate(open("input.txt"), 1):
             #w_2, w_1 = l.split(' ')[-3: -1]
-            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[-bptt_len-1: -1]]
+            batch = [TEXT.vocab.stoi[word] for word in l.split(' ')[:-1]]
             batch = torch.tensor(batch).unsqueeze(1)
             batch = ntorch.tensor(batch, names=("seqlen", "batch")).cuda()
-            #prediction_dict = Counter()
+            #print(batch.shape)
+
             prediction_dist = model(batch).double()
             mask = np.zeros(vocab_size)
             mask[TEXT.vocab.stoi["<eos>"]] = float('-inf')
@@ -132,17 +102,18 @@ def test_code(model):
             torch_mask = ntorch.tensor(torch.from_numpy(mask), names=('vocab')).to(device=device)
 
             prediction_dist += torch_mask
-
-
-            # prediction_dist = prediction_dist.get("seqlen", prediction_dist.shape['seqlen'] -1)
-            #predictions = [TEXT.vocab.itos[i] for i in prediction_dist.topk("vocab", 20)[1] ]
+            
+            if lstm:
+                prediction_dist = prediction_dist.get("seqlen", prediction_dist.shape['seqlen'] -1)
+        
 
             top20 = prediction_dist.topk("vocab", 20)[1]
 
-            predictions = [TEXT.vocab.itos[top20.get("vocab", i).item()] for i in range(20)]
+            predictions = [TEXT.vocab.itos[top20.get("vocab",i).item()] for i in range(20)]
             #print("predictions", predictions)
 
             print("%d,%s"%(i, " ".join(predictions)), file=fout)
+
 
 if __name__ == "__main__":
     # import ipdb; ipdb.set_trace()
