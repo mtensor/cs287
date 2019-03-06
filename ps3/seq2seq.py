@@ -2,13 +2,14 @@
 
 import torch
 import namedtensor as ntorch
-from ntorch.distributions import Categorical
+from torch.distributions import categorical
+import torch.nn as nn
 
 
 class Seq2Seq(nn.Module):
 
     def __init__(self, in_vocab_size, out_vocab_size, embedding_size=128, num_layers=1, dropout=0.2, hidden_size=512): #todo params
-        super(seq2seq, self).__init__()
+        super(Seq2Seq, self).__init__()
 
         self.in_embedding = ntorch.nn.Embedding(
                     in_vocab_size, embedding_size
@@ -63,7 +64,7 @@ class Seq2Seq(nn.Module):
 
             assert x_t.shape["out_seqlen"] == 1 #idk if this makes sense
 
-            dist = Categorical(self.fc(x_t), "out_vocab")
+            dist = categorical(self.fc(x_t), "out_vocab")
             sample = dist.sample()
 
 
@@ -76,10 +77,10 @@ class Seq2Seq(nn.Module):
 
 
     def beam_decode(self, beam_size=100, max_length=3):
-
+        pass
 
     def loss(self, source, target):
-
+        pass
 
         _, _, score = self(source, target)
         return score.mean() #self.lossfn(output_dists, target) # TODO

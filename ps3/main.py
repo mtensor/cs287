@@ -7,7 +7,7 @@ from namedtensor import ntorch, NamedTensor
 from namedtensor.text import NamedField
 import spacy
 
-from seq2seq import model
+from seq2seq import Seq2Seq
 
 spacy_de = spacy.load('de')
 spacy_en = spacy.load('en')
@@ -28,9 +28,19 @@ EN = NamedField(names=('trgSeqlen',), tokenize=tokenize_en,
                 init_token = BOS_WORD, eos_token = EOS_WORD) # only target needs BOS/EOS
 
 MAX_LEN = 20
-train, val, test = datasets.IWSLT.splits(exts=('.de', '.en'), fields=(DE, EN),
-                                         filter_pred=lambda x: len(vars(x)['src']) <= MAX_LEN and
-                                         len(vars(x)['trg']) <= MAX_LEN)
+import pickle
+try:
+    train, val = pickle.load(open("saved_data.p", 'rb'))
+    print(loaded)
+except: 
+    print("could not load:")
+    train, val, test = datasets.IWSLT.splits(exts=('.de', '.en'), fields=(DE, EN),
+                                             filter_pred=lambda x: len(vars(x)['src']) <= MAX_LEN and
+                                           len(vars(x)['trg']) <= MAX_LEN)
+    with open("saved_data.p", "wb") as h:
+        pickle.dump((train, val), h)
+
+
 
 MIN_FREQ = 5
 DE.build_vocab(train.src, min_freq=MIN_FREQ)
@@ -42,7 +52,7 @@ print("Size of English vocab", len(EN.vocab))
 print(EN.vocab.stoi["<s>"], EN.vocab.stoi["</s>"])  # vocab index for <s>, </s>
 
 BATCH_SIZE = 32
-device = torch.device('cuda:0')
+device = torch.device('cpu')#'cuda:0')
 train_iter, val_iter = data.BucketIterator.splits((train, val), batch_size=BATCH_SIZE, device=device,
                                                   repeat=False, sort_key=lambda x: len(x.src))
 
@@ -76,4 +86,9 @@ def beam_to_trigrams(beam_list):
 
 if __name__ == '__main__':
 	from seq2seq import Seq2Seq
-	m = Seq2Seq( )
+	m = Seq2Seq(len(DE.vocab), len(EN.vocab))
+
+
+	m.forward(batch.source, batch.target)
+
+
