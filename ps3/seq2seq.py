@@ -2,6 +2,7 @@
 
 import torch
 import namedtensor as ntorch
+from ntorch.distributions import Categorical
 
 
 class Seq2Seq(nn.Module):
@@ -51,34 +52,37 @@ class Seq2Seq(nn.Module):
         output_seq = ntorch.zeros((batch_size, max_length), names=("batch", "out_seqlen"))
         #for the above, should set zeroith index to SOS
 
-
+        score = ntorch.zeros((batch_size), names=("batch"))
         for t in range(max_length): #Oh god
             if np.rand() < teacher_forcing or t==0:  # we will force
-                next_input = target.get("out_seqlen", t)
+                if target: next_input = target.get("out_seqlen", t)
+                else: next_input = (ntorch.ones((batch_size,), names="batch")*EN.vocab.stoi["<s>"]).longtensor() #TODO
             else:
-                next_input =  output_seq.get("out_seqlen", t)#TODO
+                next_input = sample # TODO
             x_t, (h, c) = self.decoder(self.out_embedding(next_input), (h, c))
 
             assert x_t.shape["out_seqlen"] == 1 #idk if this makes sense
 
-            dist = self.fc(x_t)
+            dist = Categorical(self.fc(x_t), "out_vocab")
+            sample = dist.sample()
 
-            sample = sample dist #TODO
-            output_seq [t+1] #todo 
-            output_dists [t+1] = dist #Todo
+
+            next_token = (sample) if not target else target.get("out_seqlen", t+1)#TODO
+            score += torch.log_softmax(dist).get("out_vocab", next_token)
+            output_seq[{"out_seqlen":t+1}] = next_token #todo 
+            output_dists[{"out_seqlen":t+1}] = dist #Todo
  
-        return output_seq, output_dists
-
-    def eval(self, source):
+        return output_seq, output_dists, score
 
 
     def beam_decode(self, beam_size=100, max_length=3):
 
 
     def loss(self, source, target):
-        _, output_dists = self(source, target)
-        return self.lossfn(output_dists, target) # TODO
 
+
+        _, _, score = self(source, target)
+        return score.mean() #self.lossfn(output_dists, target) # TODO
 
 
 
