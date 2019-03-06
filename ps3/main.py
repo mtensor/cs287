@@ -28,6 +28,7 @@ EN = NamedField(names=('trgSeqlen',), tokenize=tokenize_en,
                 init_token = BOS_WORD, eos_token = EOS_WORD) # only target needs BOS/EOS
 
 MAX_LEN = 20
+import dill
 import pickle
 try:
     train, val = pickle.load(open("saved_data.p", 'rb'))
