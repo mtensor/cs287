@@ -38,9 +38,7 @@ except:
     train, val, test = datasets.IWSLT.splits(exts=('.de', '.en'), fields=(DE, EN),
                                              filter_pred=lambda x: len(vars(x)['src']) <= MAX_LEN and
                                            len(vars(x)['trg']) <= MAX_LEN)
-    with open("saved_data.p", "wb") as h:
-        pickle.dump((train, val), h)
-
+    print("did filtering here")
 
 
 MIN_FREQ = 5
@@ -64,7 +62,7 @@ def escape(l):
     return l.replace("\"", "<quote>").replace(",", "<comma>")
 
 def kaggle_output(model):
-    input_filename = source_test.txt
+    input_filename = "source_test.txt"
 
     with open(input_filename, 'rb') as file:
         for line in file:
@@ -83,6 +81,54 @@ def beam_to_trigrams(beam_list):
 
 
 
+def train(model):
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    optimizer = torch.optim.Adam(parameters, lr=0.001)
+
+    for epoch in range(8 if not debug else 1):
+        tic = time.time()
+        # eval_acc, sentence_vector = evaluate(model, x_test, y_test)
+        model.train()
+        losses = []
+        for i, batch in enumerate(train_iter):
+            source, target = batch.src, batch.trg
+            _, _, score = model(source, target)
+            optimizer.zero_grad()
+            loss = (-score).mean()
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+
+            if i%200==0:
+                print(
+                "\tavg train_loss: {:.3f} ({:.1f}s)".format(
+                    sum(losses[-200:])/len(losses[-200:]), time.time() - tic
+                )
+            )
+                if debug: break
+
+        model.eval()
+        print("computing val loss ...")
+        eval_ll = 0
+        for i, batch in enumerate(val_iter):
+            source, target = batch.src, batch.trg
+            _, _, new_eval_ll = model(source, target)
+            eval_ll += new_eval_ll.item()
+
+        eval_ll /= (i + 1)
+
+        print(
+            "[epoch: {:d}] avg train_loss: {:.3f}   eval ll: {:.3f}   ({:.1f}s)".format(
+                epoch, sum(losses)/len(losses), eval_ll, time.time() - tic
+            )
+        )
+
+        print("running test code")
+        name = "sample_"+ str(epoch) +".txt"
+        kaggle_output(model)
+
+        print("ran test code")
+
 
 
 if __name__ == '__main__':
@@ -90,6 +136,7 @@ if __name__ == '__main__':
 	m = Seq2Seq(len(DE.vocab), len(EN.vocab))
 
 
-	m.forward(batch.source, batch.target)
+	m.forward(batch.src, batch.trg)
+
 
 

@@ -1,7 +1,7 @@
 #seq to seq
 
 import torch
-import namedtensor as ntorch
+from namedtensor import ntorch
 from torch.distributions import categorical
 import torch.nn as nn
 
@@ -38,16 +38,26 @@ class Seq2Seq(nn.Module):
                             batch_first=False,
                             dropout=dropout
                             ).spec("embedding", "out_seqlen", "rnn_output")
-        
-        self.fc = ntorch.nn.Linear(
-            hidden_size, vocab_size
-        ).spec("rnn_output", "out_vocab")
+        if attention:
+            self.fc = ntorch.nn.Linear(
+                2*hidden_size, vocab_size
+            ).spec("rnn_output", "out_vocab")
+        else:  
+            self.fc = ntorch.nn.Linear(
+                hidden_size, vocab_size
+            ).spec("rnn_output", "out_vocab")
 
         self.lossfn = ntorch.nn.CrossEntropyLoss().spec("out_vocab") 
 
     def forward(self, source, target=None, teacher_forcing=0., max_length = 50):
         x = self.in_embedding(source)
         out, (h, c) = self.encoder(x)
+
+        if attention:
+            def attend(x_t):
+                alpha = out.dot("rnn_output", x_t).softmax("in_seqlen")
+                context = alpha.dot("in_seqlen", out)
+                return context
         
         output_dists = ntorch.zeros((batch_size, max_length, out_vocab_size), names=("batch", "out_seqlen", "out_vocab"))
         output_seq = ntorch.zeros((batch_size, max_length), names=("batch", "out_seqlen"))
@@ -64,7 +74,11 @@ class Seq2Seq(nn.Module):
 
             assert x_t.shape["out_seqlen"] == 1 #idk if this makes sense
 
-            dist = categorical(self.fc(x_t), "out_vocab")
+            if attention:
+                fc = self.fc (ntorch.cat([attend(x_t), x_t], dim="rnn_output") )
+            else:
+                fc = self.fc(x_t)
+            dist = categorical(fc, "out_vocab")
             sample = dist.sample()
 
 
