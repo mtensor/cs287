@@ -52,6 +52,26 @@ batch = next(iter(train_iter))
 def escape(l):
     return l.replace("\"", "<quote>").replace(",", "<comma>")
 
+def kaggle_output(model):
+    input_filename = source_test.txt
+
+    with open(input_filename, 'rb') as file:
+        for line in file:
+            beam_list = model.beam_decode(line)
+            trigrams = beam_to_trigrams(beam_list)
+
+def beam_to_trigrams(beam_list):
+    """ takes a list of the best 100 predictions (in order of decreasing likelihood)
+    for a given sentence and outputs their initial trigrams in the kaggle format """
+    assert len(beam_list) == 100  # we need 100 productions for eval
+    trigrams = []
+    for sentence in beam_list:
+        trigrams.append('|'.join([EN.vocab.itos[i] for i in sentence[:3]]))
+
+    return ' '.join(trigrams)
+
+
+
 
 
 if __name__ == '__main__':
