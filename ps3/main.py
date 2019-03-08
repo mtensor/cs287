@@ -136,7 +136,7 @@ if __name__ == '__main__':
 	m = Seq2Seq(len(DE.vocab), len(EN.vocab))
 
 
-	m.forward(batch.src, batch.trg)
+	train(model)
 
 
 
