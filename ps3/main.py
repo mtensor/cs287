@@ -8,6 +8,7 @@ from namedtensor.text import NamedField
 import spacy
 
 from seq2seq import Seq2Seq
+from syntaxseq2seq import SyntaxSeq2Seq
 
 spacy_de = spacy.load('de')
 spacy_en = spacy.load('en')
@@ -55,7 +56,7 @@ device = torch.device('cpu')#'cuda:0')
 train_iter, val_iter = data.BucketIterator.splits((train, val), batch_size=BATCH_SIZE, device=device,
                                                   repeat=False, sort_key=lambda x: len(x.src))
 
-batch = next(iter(train_iter))
+#batch = next(iter(train_iter))
 
 
 def escape(l):
@@ -105,6 +106,10 @@ def train(model):
                     sum(losses[-200:])/len(losses[-200:]), time.time() - tic
                 )
             )
+
+                import dill
+                with open("model.p", 'rb') as h:
+                    dill.dump(model, h)
                 if debug: break
 
         model.eval()
@@ -133,8 +138,7 @@ def train(model):
 
 if __name__ == '__main__':
 	from seq2seq import Seq2Seq
-	m = Seq2Seq(len(DE.vocab), len(EN.vocab))
-
+	m = SyntaxSeq2Seq(len(DE.vocab), len(EN.vocab), attention=True, dropout=0.5)
 
 	train(model)
 

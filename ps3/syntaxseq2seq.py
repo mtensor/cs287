@@ -7,10 +7,10 @@ import torch.nn as nn
 import numpy as np
 
 
-class Seq2Seq(nn.Module):
+class SyntaxSeq2Seq(nn.Module):
 
     def __init__(self, in_vocab_size, out_vocab_size, use_pretrained=False, attention=False, embedding_size=128, num_layers=1, dropout=0.2, hidden_size=256): #todo params
-        super(Seq2Seq, self).__init__()
+        super(SyntaxSeq2Seq, self).__init__()
         self.attention = attention
         self.in_vocab_size = in_vocab_size
         self.out_vocab_size = out_vocab_size
@@ -42,6 +42,13 @@ class Seq2Seq(nn.Module):
                             batch_first=False,
                             dropout=dropout
                             ).spec("embedding", "trgSeqlen", "rnnOutput")
+
+        self.syntax_decoder = ntorch.nn.LSTM(embedding_size,
+                            hidden_size=2*hidden_size,
+                            num_layers=num_layers,
+                            batch_first=False,
+                            dropout=dropout
+                            ).spec("embedding", "trgSeqlen", "rnnOutput")
         
         if self.attention:
             self.fc = ntorch.nn.Linear(
@@ -49,6 +56,10 @@ class Seq2Seq(nn.Module):
             ).spec("rnnOutput", "outVocab")
         else:  
             self.fc = ntorch.nn.Linear(
+                2 * hidden_size, out_vocab_size
+            ).spec("rnnOutput", "outVocab")
+
+        self.syntax_fc = ntorch.nn.Linear(
                 2 * hidden_size, out_vocab_size
             ).spec("rnnOutput", "outVocab")
 
@@ -91,11 +102,19 @@ class Seq2Seq(nn.Module):
                 
             x_t, (h, c) = self.decoder(self.out_embedding(next_input), (h, c))
 
+            if t == 0:
+                syntax_out, (s_h, s_c) = self.syntax_decoder(self.out_embedding(next_input))
+            else:
+                syntax_out, (s_h, s_c) = self.syntax_decoder(self.out_embedding(next_input), (s_h, s_c))
+
             if self.attention:
                 fc = self.fc(ntorch.cat([attend(x_t), x_t], dim="rnnOutput") )
             else:
                 fc = self.fc(x_t)
-                
+              
+            s_fc = self.syntax_fc(syntax_out).sum("trgSeqlen")
+            s_fc = s_fc.log_softmax("outVocab")
+
             dist = ntorch.distributions.Categorical(logits=fc, dim_logit="outVocab")
             sample = dist.sample()
             
@@ -103,13 +122,16 @@ class Seq2Seq(nn.Module):
 
             next_token = (sample) if not target else target[{"trgSeqlen": slice(t+1, t+2)}]#TODO
             
-            fc = fc.log_softmax("outVocab")
+            #this is the line where the syntax thing does it's stuff
+            fc = fc.log_softmax("outVocab") + s_fc
+
             indices = next_token.sum("trgSeqlen").rename("batch", "indices")
             batch_indices = ntorch.tensor(torch.tensor(np.arange(fc.shape["batch"]), device=device), ("batchIndices"))
+
             newsc = fc.index_select("outVocab", indices).index_select("indices", batch_indices).get("batchIndices", 0)
             
-            score[{"trgSeqlen": t+1}] = newsc       
-            
+            score[{"trgSeqlen": t+1}] = newsc 
+
             output_seq[{"trgSeqlen":t+1}] = next_token.sum("trgSeqlen") #todo 
             output_dists[{"trgSeqlen":t+1}] = fc #Todo
  
@@ -124,14 +146,15 @@ class Seq2Seq(nn.Module):
         enc_out = out
         
         state = (out, (h,c))
-        beam = [(output_seq, score, state)]
+        beam = [(output_seq, score, state, None)]
+
         
         #run first step
        
         for l in range(max_length-1):
             new_beam = []
-            for output_seq, score, state in beam:
-                new_beam.extend(self.all_possible_from_one_step(l, output_seq, score, state, enc_out))
+            for output_seq, score, state, syntax_state in beam:
+                new_beam.extend(self.all_possible_from_one_step(l, output_seq, score, state, syntax_state, enc_out))
             
             new_beam = sorted(new_beam, key=lambda entry: -entry[1]) # i think this is right....
             beam = new_beam[:beam_size]
@@ -139,16 +162,16 @@ class Seq2Seq(nn.Module):
         return beam
             
         
-    def all_possible_from_one_step(self, l, output_seq, score, state, enc_out):
+    def all_possible_from_one_step(self, l, output_seq, score, state, syntax_state, enc_out):
         if not self.active(output_seq):
             return [(output_seq, score, state)]
         else: 
             if l == 0:
                 output_seq[{"trgSeqlen":0}] == EN.vocab.stoi["<s>"]
             
-        return self.decode_one_step(l, output_seq, score, state, enc_out)
+        return self.decode_one_step(l, output_seq, score, state, syntax_state, enc_out)
         
-    def decode_one_step(self, t, output_seq, score, state, enc_out):
+    def decode_one_step(self, t, output_seq, score, state, syntax_state, enc_out):
         
         if self.attention:
             def attend(x_t):
@@ -158,19 +181,32 @@ class Seq2Seq(nn.Module):
         
         
         h, c = state[-1]
+        if syntax_state: (s_h, s_c) = syntax_state[-1]
+
         next_input = output_seq[{"trgSeqlen": slice(t, t+1)}].long()
 
         x_t, (h, c) = self.decoder(self.out_embedding(next_input), (h, c))
+
+        if syntax_state == None:
+            syntax_out, (s_h, s_c) = self.syntax_decoder(self.out_embedding(next_input))
+        else:
+            syntax_out, (s_h, s_c) = self.syntax_decoder(self.out_embedding(next_input), (s_h, s_c))
 
         if self.attention:
             fc = self.fc(ntorch.cat([attend(x_t), x_t], dim="rnnOutput") )
         else:
             fc = self.fc(x_t)
+          
+        s_fc = self.syntax_fc(syntax_out).sum("trgSeqlen")
+        s_fc = s_fc.log_softmax("outVocab")
 
         fc = fc.sum("trgSeqlen")
-        fc = fc.log_softmax("outVocab")
+
+        fc = fc.log_softmax("outVocab") + s_fc
+
         state = x_t, (h, c)
         
+        syntax_state = syntax_out, (s_h, s_c)
         #can instead use argmax ... 
         #next_tokens = fc.argmax("")
         #ntorch.tensor(topk, names=dim_names)
@@ -196,7 +232,7 @@ class Seq2Seq(nn.Module):
             assert output_seq[{"trgSeqlen":t+1}].long() == next_token.sum("trgSeqlen") #todo 
             #output_dists[{"trgSeqlen":t+1}] = fc
             
-            lst.append((output_seq, score, state))
+            lst.append((output_seq, score, state, syntax_state))
         return lst
 
         
