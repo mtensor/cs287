@@ -11,6 +11,7 @@ from namedtensor.text import NamedField
 
 import args
 
+import torch.nn as nn
 #TODO add droppout
 
 class MLP(nn.Module):
@@ -35,7 +36,7 @@ class Model(nn.Module):
 
         self.embedding = ntorch.nn.Embedding(
                     vectors.shape[0] , args.embedding_size
-                ).spec("embedding") #TODO is this good?
+                ).spec("seqlen", "embedding") #TODO is this good?
 
         self.embedding.weight.data.copy_(vectors)
         self.embedding.weight.requires_grad = False
@@ -54,7 +55,7 @@ class Model(nn.Module):
 
 
         self.lossfn = ntorch.nn.CrossEntropyLoss().spec("classes") 
-        self.lossfn.reduction = None #TODO
+        self.lossfn.reduction = "none" #TODO
 
     def forward(self, a, b):
         """
@@ -63,7 +64,7 @@ class Model(nn.Module):
         b: batch x seqlenB x embedding
         """
         a = self.embedding(a).rename("seqlen", "seqlenA")
-        b = self.embedding(a).rename("seqlen", "seqlenB")
+        b = self.embedding(b).rename("seqlen", "seqlenB")
 
         if args.intra_sentence:
             #we ignore distance bias term because we are lazy
@@ -86,11 +87,12 @@ class Model(nn.Module):
 
         return y
 
-    def loss(self, batch):
+    def loss(self, a, b, tgt):
 
         y = self(a, b)
         loss = self.lossfn(y, tgt)
-        return loss
+
+        return loss.mean("batch")
 
 
 

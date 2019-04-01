@@ -9,6 +9,7 @@ from namedtensor import ntorch, NamedTensor
 from namedtensor.text import NamedField
 
 import args
+import time
 
 # Our input $x$
 TEXT = NamedField(names=('seqlen',))
@@ -64,7 +65,7 @@ def train(model, debug=False):
         model.train()
         losses = []
         for i, batch in enumerate(train_iter):
-        	optimizer.zero_grad()
+            optimizer.zero_grad()
             a, b, y = batch.premise, batch.hypothesis, batch.label
             loss = model.loss(a, b, y)
             loss.backward()
@@ -79,7 +80,7 @@ def train(model, debug=False):
             )
 
                 import dill
-                with open("model.p", 'rb') as h:
+                with open("model.p", 'wb') as h:
                     dill.dump(model, h)
                 if debug: break
 
@@ -106,10 +107,10 @@ def train(model, debug=False):
         print("ran test code")
 
 if __name__ == '__main__':
-	import args
-	from model import Model
-	model = Model(vectors).cuda()
+    import args
+    from model import Model
+    model = Model(vectors).cuda()
 
-	train(model)
+    train(model)
 
 
