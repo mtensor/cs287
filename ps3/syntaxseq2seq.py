@@ -5,7 +5,7 @@ from namedtensor import ntorch
 from torch.distributions import categorical
 import torch.nn as nn
 import numpy as np
-
+device = torch.device('cuda:0')
 
 class SyntaxSeq2Seq(nn.Module):
 
