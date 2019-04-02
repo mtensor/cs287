@@ -11,6 +11,9 @@ from namedtensor.text import NamedField
 import args
 import time
 
+method = 'ensemble'
+device = 'cpu'
+
 # Our input $x$
 TEXT = NamedField(names=('seqlen',))
 
@@ -26,7 +29,7 @@ print('len(TEXT.vocab)', len(TEXT.vocab))
 print('LABEL.vocab', LABEL.vocab)
 
 train_iter, val_iter, test_iter = torchtext.data.BucketIterator.splits(
-    (train, val, test), batch_size=16, device=torch.device("cuda"), repeat=False)
+    (train, val, test), batch_size=16, device=torch.device(device), repeat=False)
 
 import random
 unk_vectors = [torch.randn(300) for _ in range(100)]
@@ -42,7 +45,7 @@ def test_code(model, name="predictions.txt"):
     "All models should be able to be run with following command."
     upload = []
     # Update: for kaggle the bucket iterator needs to have batch_size 10
-    test_iter = torchtext.data.BucketIterator(test, train=False, batch_size=10, device=torch.device("cuda"))
+    test_iter = torchtext.data.BucketIterator(test, train=False, batch_size=10, device=torch.device(device))
     for batch in test_iter:
         # Your prediction data here (don't cheat!)
         probs = model(batch.premise, batch.hypothesis)
@@ -56,7 +59,11 @@ def test_code(model, name="predictions.txt"):
             f.write(str(i) + "," + str(u) + "\n")
 
 def train(model, debug=False):
-    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    if method=='ensemble':
+        parameters = filter(lambda p: p.requires_grad,
+            [p for m in model.models for p in m.parameters()])
+    else:
+        parameters = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = torch.optim.Adam(parameters, lr=0.001)
 
     for epoch in range(8 if not debug else 1):
@@ -109,8 +116,11 @@ def train(model, debug=False):
 if __name__ == '__main__':
     import args
     from model import Model
-    model = Model(vectors).cuda()
+    from ensemble import Ensemble
+
+    if method=='ensemble':
+        model = Ensemble(vectors).to(device)
+    else:
+        model = Model(vectors).to(device)
 
     train(model)
-
-
