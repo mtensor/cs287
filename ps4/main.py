@@ -11,7 +11,7 @@ from namedtensor.text import NamedField
 import args
 import time
 
-method = 'ensemble'
+method = 'single' #'ensemble'
 device = 'cpu'
 
 # Our input $x$
@@ -40,6 +40,13 @@ vectors = TEXT.vocab.vectors
 vectors = vectors / vectors.norm(dim=1,keepdim=True)
 ntorch_vectors = NamedTensor(vectors, ('word', 'embedding'))
 TEXT.vocab.vectors = ntorch_vectors
+
+def visualize_attn(model):
+    batch = next(iter(train_iter))
+    a, b, y = batch.premise, batch.hypothesis, batch.label
+
+    model.showAttention(a, b, TEXT)
+    print("did it")
 
 def test_code(model, name="predictions.txt"):
     "All models should be able to be run with following command."
@@ -92,11 +99,12 @@ def train(model, debug=False):
                 if debug: break
 
         model.eval()
+        visualize_attn(model)
         print("computing val loss ...")
         eval_ll = 0
         for i, batch in enumerate(val_iter):
             a, b, y = batch.premise, batch.hypothesis, batch.label
-            new_eval_ll = model.loss(a, b, c)
+            new_eval_ll = model.loss(a, b, y)
             eval_ll += new_eval_ll.item()
 
         eval_ll /= (i + 1)
@@ -113,6 +121,7 @@ def train(model, debug=False):
 
         print("ran test code")
 
+
 if __name__ == '__main__':
     import args
     from model import Model
@@ -124,3 +133,15 @@ if __name__ == '__main__':
         model = Model(vectors).to(device)
 
     train(model)
+    # import dill
+    # with open('model.p', 'rb') as h:
+    #     model = dill.load(h)
+
+    # visualize_attn(model)
+
+
+
+
+
+
+
