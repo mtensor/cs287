@@ -68,8 +68,8 @@ class Model(nn.Module):
 
         if args.intra_sentence:
             #we ignore distance bias term because we are lazy
-            a_p = a.dot("embedding", a).softmax("seqlenA").dot("seqlenA")
-            b_p = b.dot("embedding", b).softmax("seqlenB").dot("seqlenB")
+            a_p = a.dot("embedding", a.rename("seqlenA", "sl")).softmax("sl").dot("sl", a.rename("seqlenA", "sl"))
+            b_p = b.dot("embedding", b.rename("seqlenB", "sl")).softmax("sl").dot("sl", b.rename("seqlenB", "sl"))
 
             a = ntorch.cat( (a, a_p), "embedding")
             b = ntorch.cat( (b, b_p), "embedding")
@@ -80,8 +80,8 @@ class Model(nn.Module):
 
         attns_alpha = a.dot("embedding", b).softmax("seqlenA")
         attns_beta = b.dot("embedding", a).softmax("seqlenB")
-
         if show_attn: return attns_alpha, attns_beta
+
         alpha = attns_alpha.dot("seqlenA", a)
         beta = attns_beta.dot("seqlenB", b)
 
